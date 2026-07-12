@@ -14,19 +14,16 @@ Interacts With
 --------------
 - api/v1/*.py -> every router response is wrapped via these helpers.
 - core/exceptions.py -> exception handlers build the error envelope via error().
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
 """
 
 from typing import Any
+
 from pydantic import BaseModel
 
 
 class APIResponse(BaseModel):
     """Standard response envelope returned by every endpoint."""
+
     success: bool
     message: str
     data: Any | None = None
@@ -34,9 +31,9 @@ class APIResponse(BaseModel):
 
 def success(data: Any = None, message: str = "OK") -> APIResponse:
     """Build a successful APIResponse envelope."""
-    pass
+    return APIResponse(success=True, message=message, data=data)
 
 
 def error(message: str, data: Any = None) -> APIResponse:
     """Build an error APIResponse envelope (used by global exception handlers)."""
-    pass
+    return APIResponse(success=False, message=message, data=data)

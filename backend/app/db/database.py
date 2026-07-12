@@ -15,19 +15,21 @@ Interacts With
 - config.py -> DATABASE_URL.
 - dependencies.py -> get_db() uses SessionLocal to yield sessions.
 - lifespan.py -> disposes of the engine on shutdown.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
 """
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from app.config import settings
 
-engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL, echo=settings.DEBUG, pool_pre_ping=True, future=True,
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,
+    pool_pre_ping=True,
 )
 
-SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False,
+SessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False,
 )

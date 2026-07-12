@@ -16,23 +16,19 @@ Interacts With
 --------------
 - services/auth_service.py -> the only caller of these helpers.
 - config.py -> BCRYPT_ROUNDS setting.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
 """
 
-def hash_password(plain_password: str) -> str:
-    """Hash a plaintext password using bcrypt (passlib CryptContext)."""
-    pass
+import secrets
 
+from passlib.context import CryptContext
 
-def verify_password(plain_password: str, password_hash: str) -> bool:
-    """Verify a plaintext password against its stored bcrypt hash."""
-    pass
+from app.config import settings
 
+# A single shared CryptContext, configured with the rounds from settings so
+# BCRYPT_ROUNDS can be tuned per-environment (e.g. lower for local dev/tests)
+# without touching this module.
+_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=settings.BCRYPT_ROUNDS)
 
-def generate_session_token() -> str:
-    """Generate a cryptographically random, URL-safe opaque session token (NOT a JWT)."""
-    pass
+# Length (in bytes, before URL-safe base64 encoding) of generated session
+# tokens. 32 random bytes -> a 43-character token, comfortably fitting the
+# VARCHAR(255) session_token column and providing ample entropy.
