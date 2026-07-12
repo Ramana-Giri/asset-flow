@@ -1,63 +1,46 @@
-"""
-AuditItem Model  (table: "audit_items")
+from __future__ import annotations
+from datetime import datetime
+from typing import Optional
 
-Purpose
--------
-Per-asset verification record within an audit cycle: Verified / Missing / Damaged, with discrepancy resolution tracking.
-
-Responsibilities
------------------
-- Maps ORM attributes 1:1 to the "audit_items" table defined in assetflow_schema.sql.
-- Declares relationships to related entities for ORM (lazy) navigation.
-- Contains NO business logic, NO validation logic, NO query logic.
-
-Interacts With
---------------
-- db/base.py -> inherits the shared DeclarativeBase.
-- repositories/*_repository.py -> the only layer permitted to query/persist AuditItem directly.
-- SQLAlchemy relationship()s mirror the FKs declared in assetflow_schema.sql.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from sqlalchemy import Integer, ForeignKey, DateTime, Text, UniqueConstraint, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+from app.core.enums import AuditResult, ResolutionStatus
 
 
 class AuditItem(Base):
-    """
-    ORM model for the "audit_items" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - audit_cycle_id: FK -> audit_cycles.id NOT NULL
-    # - asset_id: FK -> assets.id NOT NULL
-    # - auditor_id: FK -> users.id (nullable)
-    # - result: audit_result ENUM ('Verified','Missing','Damaged') (nullable until checked)
-    # - remarks: TEXT
-    # - checked_at: TIMESTAMPTZ (nullable)
-    # - resolution_status: resolution_status ENUM ('Open','Resolved')
-    # - resolved_by: FK -> users.id (nullable, Asset Manager)
-    # - resolved_at: TIMESTAMPTZ (nullable)
-    # - created_at / updated_at: TIMESTAMPTZ
-    # - UNIQUE (audit_cycle_id, asset_id)
-
-    Relationships:
-    # - audit_cycle: AuditCycle (many-to-one)
-    # - asset: Asset (many-to-one)
-    # - auditor: User (many-to-one, nullable)
-    # - resolved_by_user: User (many-to-one, nullable)
-    """
-
     __tablename__ = "audit_items"
+    __table_args__ = (
+        UniqueConstraint("audit_cycle_id", "asset_id", name="uq_audit_item_cycle_asset"),
+    )
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    audit_cycle_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_cycles.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), nullable=False)
+    auditor_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    result: Mapped[Optional[AuditResult]] = mapped_column(
+        postgresql.ENUM("Verified", "Missing", "Damaged", name="audit_result", create_type=False),
+        nullable=True,
+    )
+    remarks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_status: Mapped[ResolutionStatus] = mapped_column(
+        postgresql.ENUM("Open", "Resolved", name="resolution_status", create_type=False),
+        nullable=False,
+        server_default="Open",
+    )
+    resolved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    audit_cycle: Mapped["AuditCycle"] = relationship("AuditCycle", back_populates="items")
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="audit_items")
+    auditor: Mapped[Optional["User"]] = relationship("User", foreign_keys=[auditor_id])
+    resolved_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[resolved_by])

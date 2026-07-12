@@ -1,63 +1,56 @@
-"""
-AllocationRepository
+from __future__ import annotations
+from datetime import date, datetime
+from typing import Optional, Sequence
 
-Purpose
--------
-Encapsulates all direct PostgreSQL access for the Allocation entity (and closely related child rows).
-
-Responsibilities
------------------
-- Only database operations (SELECT/INSERT/UPDATE/DELETE via SQLAlchemy 2.0 ORM).
-- No business logic. No HTTP exceptions (raises at most a 'not found in DB' sentinel/None).
-- Reusable by any service that needs this entity's persistence.
-
-Interacts With
---------------
-- repositories/base.py -> inherits generic CRUD/pagination behaviour.
-- services/*.py -> the only layer permitted to call AllocationRepository directly.
-- db/models/*.py -> operates on the Allocation ORM model (and related models where noted).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.repositories.base import BaseRepository
-# from app.db.models.allocation import Allocation
+from app.db.models.allocation import Allocation
 
 
-class AllocationRepository(BaseRepository):
-    """
-    Repository for the Allocation entity.
-
-    Inherits generic find_by_id / create / update / delete / list_all /
-    search from BaseRepository, and adds the entity-specific query
-    methods below.
-    """
-
+class AllocationRepository(BaseRepository[Allocation]):
     def __init__(self, session: AsyncSession):
-        """Bind this repository to the given DB session and its ORM model."""
-        # super().__init__(session, Allocation)
-        pass
+        super().__init__(session, Allocation)
 
-    async def find_active_by_asset(self, *args, **kwargs):
-        """Fetch the current 'Active' allocation for an asset, if any (relies on the DB partial unique index)."""
-        pass
+    async def find_active_by_asset(self, asset_id: int) -> Optional[Allocation]:
+        result = await self.session.execute(
+            select(Allocation).where(Allocation.asset_id == asset_id, Allocation.status == "Active")
+        )
+        return result.scalar_one_or_none()
 
-    async def list_by_user(self, *args, **kwargs):
-        """List allocations held by a given user."""
-        pass
+    async def list_by_user(self, user_id: int) -> Sequence[Allocation]:
+        result = await self.session.execute(
+            select(Allocation).where(Allocation.allocated_to_user_id == user_id)
+        )
+        return result.scalars().all()
 
-    async def list_by_department(self, *args, **kwargs):
-        """List allocations held by a given department."""
-        pass
+    async def list_by_department(self, department_id: int) -> Sequence[Allocation]:
+        result = await self.session.execute(
+            select(Allocation).where(Allocation.allocated_to_department_id == department_id)
+        )
+        return result.scalars().all()
 
-    async def list_overdue(self, *args, **kwargs):
-        """List Active allocations past their expected_return_date (mirrors v_overdue_allocations)."""
-        pass
+    async def list_overdue(self) -> Sequence[Allocation]:
+        result = await self.session.execute(
+            select(Allocation).where(
+                Allocation.status == "Active",
+                Allocation.expected_return_date.is_not(None),
+                Allocation.expected_return_date < date.today(),
+            )
+        )
+        return result.scalars().all()
 
-    async def mark_returned(self, *args, **kwargs):
-        """Persist actual_return_date, return_condition_notes, returned_by, status='Returned'."""
-        pass
+    async def mark_returned(
+        self, allocation_id: int, actual_return_date: date, return_condition_notes: Optional[str], returned_by: int
+    ) -> Optional[Allocation]:
+        allocation = await self.find_by_id(allocation_id)
+        if allocation is None:
+            return None
+        allocation.actual_return_date = actual_return_date
+        allocation.return_condition_notes = return_condition_notes
+        allocation.returned_by = returned_by
+        allocation.status = "Returned"
+        await self.session.flush()
+        await self.session.refresh(allocation)
+        return allocation

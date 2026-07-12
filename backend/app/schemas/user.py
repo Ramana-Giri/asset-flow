@@ -1,102 +1,51 @@
-"""
-User Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import datetime
 
-Purpose
--------
-Employee Directory: CRUD, search/pagination, activate/deactivate, department assignment, role promotion.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/user.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class UserCreate(BaseModel):
-    """
-    Admin-created user payload (distinct from public Signup).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: str = Field(..., min_length=1, max_length=150)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
+    department_id: Optional[int] = None
 
 
 class UserUpdate(BaseModel):
-    """
-    Editable profile/department fields.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    department_id: Optional[int] = None
+    status: Optional[str] = None
 
 
 class UserRoleUpdate(BaseModel):
-    """
-    Admin-only payload to promote/demote a user's role (Department Head / Asset Manager).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    role: str = Field(..., description="One of: Admin, Asset Manager, Department Head, Employee")
 
 
 class UserResponse(BaseModel):
-    """
-    Public-safe user representation (never includes password_hash).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: EmailStr
+    role: str
+    department_id: Optional[int] = None
+    status: str
+    promoted_by: Optional[int] = None
+    promoted_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class UserListResponse(BaseModel):
-    """
-    Paginated list wrapper for UserResponse.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[UserResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class UserFilter(BaseModel):
-    """
-    Search/filter params: name, email, department_id, role, status.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: Optional[str] = None
+    email: Optional[str] = None
+    department_id: Optional[int] = None
+    role: Optional[str] = None
+    status: Optional[str] = None

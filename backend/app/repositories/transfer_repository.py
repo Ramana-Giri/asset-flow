@@ -1,59 +1,51 @@
-"""
-TransferRepository
+from __future__ import annotations
+from datetime import datetime
+from typing import Optional, Sequence
 
-Purpose
--------
-Encapsulates all direct PostgreSQL access for the TransferRequest entity (and closely related child rows).
-
-Responsibilities
------------------
-- Only database operations (SELECT/INSERT/UPDATE/DELETE via SQLAlchemy 2.0 ORM).
-- No business logic. No HTTP exceptions (raises at most a 'not found in DB' sentinel/None).
-- Reusable by any service that needs this entity's persistence.
-
-Interacts With
---------------
-- repositories/base.py -> inherits generic CRUD/pagination behaviour.
-- services/*.py -> the only layer permitted to call TransferRepository directly.
-- db/models/*.py -> operates on the TransferRequest ORM model (and related models where noted).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.repositories.base import BaseRepository
-# from app.db.models.transfer import TransferRequest
+from app.db.models.transfer import TransferRequest
 
 
-class TransferRepository(BaseRepository):
-    """
-    Repository for the TransferRequest entity.
-
-    Inherits generic find_by_id / create / update / delete / list_all /
-    search from BaseRepository, and adds the entity-specific query
-    methods below.
-    """
-
+class TransferRepository(BaseRepository[TransferRequest]):
     def __init__(self, session: AsyncSession):
-        """Bind this repository to the given DB session and its ORM model."""
-        # super().__init__(session, TransferRequest)
-        pass
+        super().__init__(session, TransferRequest)
 
-    async def list_pending(self, *args, **kwargs):
-        """List transfer requests with status='Requested'."""
-        pass
+    async def list_pending(self) -> Sequence[TransferRequest]:
+        result = await self.session.execute(
+            select(TransferRequest).where(TransferRequest.status == "Requested")
+        )
+        return result.scalars().all()
 
-    async def list_by_asset(self, *args, **kwargs):
-        """List transfer request history for one asset."""
-        pass
+    async def list_by_asset(self, asset_id: int) -> Sequence[TransferRequest]:
+        result = await self.session.execute(
+            select(TransferRequest)
+            .where(TransferRequest.asset_id == asset_id)
+            .order_by(TransferRequest.created_at.desc())
+        )
+        return result.scalars().all()
 
-    async def mark_decision(self, *args, **kwargs):
-        """Persist Approved/Rejected + approved_by/approved_at."""
-        pass
+    async def mark_decision(
+        self, transfer_id: int, status: str, approved_by: int, approved_at: datetime
+    ) -> Optional[TransferRequest]:
+        transfer = await self.find_by_id(transfer_id)
+        if transfer is None:
+            return None
+        transfer.status = status
+        transfer.approved_by = approved_by
+        transfer.approved_at = approved_at
+        await self.session.flush()
+        await self.session.refresh(transfer)
+        return transfer
 
-    async def mark_completed(self, *args, **kwargs):
-        """Persist status='Completed' + new_allocation_id once re-allocated."""
-        pass
+    async def mark_completed(self, transfer_id: int, new_allocation_id: int) -> Optional[TransferRequest]:
+        transfer = await self.find_by_id(transfer_id)
+        if transfer is None:
+            return None
+        transfer.status = "Completed"
+        transfer.new_allocation_id = new_allocation_id
+        await self.session.flush()
+        await self.session.refresh(transfer)
+        return transfer

@@ -1,90 +1,41 @@
-"""
-Asset Category Schemas
+from __future__ import annotations
+from typing import Optional, Literal
+from datetime import datetime
 
-Purpose
--------
-Asset Category CRUD including the JSONB custom_field_schema definition.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/asset_category.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class CustomFieldDefinition(BaseModel):
-    """
-    Single custom field spec: field name, type, unit/options.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    field: str = Field(..., min_length=1, max_length=100)
+    type: Literal["string", "number", "boolean", "date"]
+    unit: Optional[str] = None
+    options: Optional[list[str]] = None
 
 
 class AssetCategoryCreate(BaseModel):
-    """
-    name, description, custom_field_schema (list[CustomFieldDefinition]).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    custom_field_schema: list[CustomFieldDefinition] = Field(default_factory=list)
 
 
 class AssetCategoryUpdate(BaseModel):
-    """
-    Editable category fields.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    custom_field_schema: Optional[list[CustomFieldDefinition]] = None
 
 
 class AssetCategoryResponse(BaseModel):
-    """
-    Category representation.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: Optional[str] = None
+    custom_field_schema: list[dict] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
 
 
 class AssetCategoryListResponse(BaseModel):
-    """
-    Paginated list wrapper.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[AssetCategoryResponse]
+    total: int
+    skip: int
+    limit: int

@@ -1,31 +1,11 @@
-"""
-Base Repository
+from __future__ import annotations
+from typing import Generic, TypeVar, Optional, Sequence
 
-Purpose
--------
-Generic reusable CRUD/query scaffolding shared by every concrete repository, so entity repositories only declare entity-specific finder methods.
-
-Responsibilities
------------------
-- Provide generic find_by_id / create / update / delete / list methods over a given ORM model.
-- Provide generic pagination support (see utils/pagination.py) and dynamic filtering support (see utils/filters.py).
-- Accept an AsyncSession via constructor injection (see dependencies.py -> get_db()).
-- Contain ONLY database operations - no business rules, no HTTP exceptions.
-
-Interacts With
---------------
-- db/database.py -> receives an AsyncSession created there.
-- Concrete repositories (e.g. AssetRepository) subclass this for shared CRUD behaviour.
-- utils/pagination.py, utils/filters.py -> reused here for list/search operations.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from typing import Generic, TypeVar
+from sqlalchemy import select, func, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.utils.pagination import paginate, PageResult
+from app.utils.filters import apply_filters
 
 ModelType = TypeVar("ModelType")
 
@@ -38,30 +18,45 @@ class BaseRepository(Generic[ModelType]):
     """
 
     def __init__(self, session: AsyncSession, model: type[ModelType]):
-        """Store the active DB session and the ORM model this repository manages."""
         self.session = session
         self.model = model
 
-    async def find_by_id(self, id_: int):
-        """Fetch a single row by primary key, or None if not found."""
-        pass
+    async def find_by_id(self, id_: int) -> Optional[ModelType]:
+        result = await self.session.execute(
+            select(self.model).where(self.model.id == id_)
+        )
+        return result.scalar_one_or_none()
 
-    async def list_all(self, skip: int = 0, limit: int = 50):
-        """Fetch a page of rows (see utils/pagination.py for the shared page contract)."""
-        pass
+    async def list_all(self, skip: int = 0, limit: int = 50) -> PageResult:
+        query = select(self.model)
+        return await paginate(self.session, query, skip, limit)
 
-    async def create(self, data: dict):
-        """Insert a new row from a validated dict (typically schema.model_dump())."""
-        pass
+    async def create(self, data: dict) -> ModelType:
+        obj = self.model(**data)
+        self.session.add(obj)
+        await self.session.flush()
+        await self.session.refresh(obj)
+        return obj
 
-    async def update(self, id_: int, data: dict):
-        """Patch an existing row by primary key with the given field values."""
-        pass
+    async def update(self, id_: int, data: dict) -> Optional[ModelType]:
+        obj = await self.find_by_id(id_)
+        if obj is None:
+            return None
+        for key, value in data.items():
+            setattr(obj, key, value)
+        await self.session.flush()
+        await self.session.refresh(obj)
+        return obj
 
-    async def delete(self, id_: int):
-        """Hard-delete or soft-deactivate a row, depending on entity semantics."""
-        pass
+    async def delete(self, id_: int) -> bool:
+        obj = await self.find_by_id(id_)
+        if obj is None:
+            return False
+        await self.session.delete(obj)
+        await self.session.flush()
+        return True
 
-    async def search(self, filters: dict, skip: int = 0, limit: int = 50):
-        """Apply dynamic filters (see utils/filters.py) and return a paginated result."""
-        pass
+    async def search(self, filters: dict, skip: int = 0, limit: int = 50) -> PageResult:
+        query = select(self.model)
+        query = apply_filters(query, self.model, filters)
+        return await paginate(self.session, query, skip, limit)

@@ -1,90 +1,52 @@
-"""
-Report Schemas
-
-Purpose
--------
-Reports & Analytics response contracts. All reports return JSON (no PDF generation).
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/report.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
+from __future__ import annotations
 from pydantic import BaseModel
+from typing import Optional
 
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+
+class AssetUtilizationItem(BaseModel):
+    asset_id: int
+    allocation_count: int
+    booking_count: int
 
 
 class AssetUtilizationReport(BaseModel):
-    """
-    Most-used vs idle assets, utilization trend data points.
+    items: list[AssetUtilizationItem]
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class DepartmentSummaryItem(BaseModel):
+    department_id: int
+    allocation_count: int
 
 
 class DepartmentSummaryReport(BaseModel):
-    """
-    Department-wise allocation summary.
+    items: list[DepartmentSummaryItem]
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class MaintenanceSummaryItem(BaseModel):
+    asset_id: int
+    request_count: int
 
 
 class MaintenanceSummaryReport(BaseModel):
-    """
-    Maintenance frequency by asset/category.
+    items: list[MaintenanceSummaryItem]
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class BookingHeatmapItem(BaseModel):
+    weekday: int
+    hour: int
+    booking_count: int
 
 
 class BookingHeatmapReport(BaseModel):
-    """
-    Resource booking heatmap (peak usage windows).
+    items: list[BookingHeatmapItem]
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class IdleAssetItem(BaseModel):
+    asset_id: int
+    name: str
+    status: str
 
 
 class IdleAssetsReport(BaseModel):
-    """
-    Assets nearing retirement / due for maintenance / unused for N days.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[IdleAssetItem]
+    threshold_days: int

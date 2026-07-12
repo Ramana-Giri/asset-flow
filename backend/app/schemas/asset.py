@@ -1,126 +1,89 @@
-"""
-Asset Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import date, datetime
+from decimal import Decimal
 
-Purpose
--------
-Asset registration, update, document upload metadata, QR/tag info, filtering/search, and history.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/asset.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class AssetCreate(BaseModel):
-    """
-    name, category_id, serial_number, acquisition_date/cost, condition, location, department_id, is_bookable, custom_field_values. asset_tag/qr_code are server-generated, never client-supplied.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: str = Field(..., min_length=1, max_length=150)
+    category_id: int
+    serial_number: Optional[str] = Field(None, max_length=100)
+    acquisition_date: Optional[date] = None
+    acquisition_cost: Optional[Decimal] = None
+    condition: Optional[str] = "Good"
+    location: Optional[str] = Field(None, max_length=150)
+    department_id: Optional[int] = None
+    is_bookable: bool = False
+    custom_field_values: dict = Field(default_factory=dict)
 
 
 class AssetUpdate(BaseModel):
-    """
-    Editable asset fields (condition, location, department_id, is_bookable, custom_field_values, etc). Status transitions go through dedicated service actions, not a raw field update.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: Optional[str] = Field(None, min_length=1, max_length=150)
+    condition: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=150)
+    department_id: Optional[int] = None
+    is_bookable: Optional[bool] = None
+    custom_field_values: Optional[dict] = None
 
 
 class AssetDocumentCreate(BaseModel):
-    """
-    Metadata for an uploaded photo/document (file_type); actual file handled by utils/file_upload.py.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    file_type: Optional[str] = Field(None, max_length=50)
 
 
 class AssetDocumentResponse(BaseModel):
-    """
-    Document representation (file_url, file_type, uploaded_by, uploaded_at).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    file_url: str
+    file_type: Optional[str] = None
+    uploaded_by: Optional[int] = None
+    uploaded_at: datetime
 
 
 class AssetResponse(BaseModel):
-    """
-    Full asset representation including resolved category/department summaries.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_tag: Optional[str] = None
+    name: str
+    category_id: int
+    serial_number: Optional[str] = None
+    acquisition_date: Optional[date] = None
+    acquisition_cost: Optional[Decimal] = None
+    condition: str
+    location: Optional[str] = None
+    department_id: Optional[int] = None
+    status: str
+    is_bookable: bool
+    qr_code: Optional[str] = None
+    custom_field_values: dict = Field(default_factory=dict)
+    created_by: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class AssetListResponse(BaseModel):
-    """
-    Paginated list wrapper for AssetResponse.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[AssetResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class AssetFilter(BaseModel):
-    """
-    Search/filter params: asset_tag, serial_number, qr_code, category_id, status, department_id, location, is_bookable.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_tag: Optional[str] = None
+    serial_number: Optional[str] = None
+    qr_code: Optional[str] = None
+    category_id: Optional[int] = None
+    status: Optional[str] = None
+    department_id: Optional[int] = None
+    location: Optional[str] = None
+    is_bookable: Optional[bool] = None
+    text: Optional[str] = None
 
 
 class AssetHistoryResponse(BaseModel):
-    """
-    Combined allocation history + maintenance history + status history for one asset.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: int
+    status_history: list[dict] = Field(default_factory=list)
+    allocation_history: list[dict] = Field(default_factory=list)
+    maintenance_history: list[dict] = Field(default_factory=list)

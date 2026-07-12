@@ -1,114 +1,67 @@
-"""
-Maintenance Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import datetime
 
-Purpose
--------
-Maintenance request workflow contracts (Pending -> Approved/Rejected -> Technician Assigned -> In Progress -> Resolved).
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/maintenance.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class MaintenanceRequestCreate(BaseModel):
-    """
-    asset_id, issue_description, priority, photo_url (optional).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: int
+    issue_description: str = Field(..., min_length=1)
+    priority: Optional[str] = "Medium"
+    photo_url: Optional[str] = Field(None, max_length=500)
 
 
 class MaintenanceDecision(BaseModel):
-    """
-    Approve/Reject payload (rejection_reason required when rejecting).
+    approve: bool
+    rejection_reason: Optional[str] = None
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    @model_validator(mode="after")
+    def check_rejection_reason(self):
+        if not self.approve and not self.rejection_reason:
+            raise ValueError("rejection_reason is required when rejecting")
+        return self
 
 
 class MaintenanceTechnicianAssign(BaseModel):
-    """
-    technician_name, technician_contact.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    technician_name: str = Field(..., min_length=1, max_length=150)
+    technician_contact: Optional[str] = Field(None, max_length=100)
 
 
 class MaintenanceResolve(BaseModel):
-    """
-    resolution_notes.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    resolution_notes: Optional[str] = None
 
 
 class MaintenanceResponse(BaseModel):
-    """
-    Maintenance request representation.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    raised_by: int
+    issue_description: str
+    priority: str
+    photo_url: Optional[str] = None
+    status: str
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    technician_name: Optional[str] = None
+    technician_contact: Optional[str] = None
+    technician_assigned_at: Optional[datetime] = None
+    in_progress_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolution_notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class MaintenanceListResponse(BaseModel):
-    """
-    Paginated list wrapper.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[MaintenanceResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class MaintenanceFilter(BaseModel):
-    """
-    Search/filter params: asset_id, status, priority.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: Optional[int] = None
+    status: Optional[str] = None
+    priority: Optional[str] = None

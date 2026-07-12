@@ -1,64 +1,56 @@
-"""
-MaintenanceRequest Model  (table: "maintenance_requests")
+from __future__ import annotations
+from datetime import datetime
+from typing import Optional
 
-Purpose
--------
-Pending -> Approved/Rejected -> Technician Assigned -> In Progress -> Resolved repair workflow. Asset flips to 'Under Maintenance' on Approval and back to 'Available' on Resolution.
-
-Responsibilities
------------------
-- Maps ORM attributes 1:1 to the "maintenance_requests" table defined in assetflow_schema.sql.
-- Declares relationships to related entities for ORM (lazy) navigation.
-- Contains NO business logic, NO validation logic, NO query logic.
-
-Interacts With
---------------
-- db/base.py -> inherits the shared DeclarativeBase.
-- repositories/*_repository.py -> the only layer permitted to query/persist MaintenanceRequest directly.
-- SQLAlchemy relationship()s mirror the FKs declared in assetflow_schema.sql.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from sqlalchemy import Integer, ForeignKey, DateTime, String, Text, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+from app.core.enums import MaintenancePriority, MaintenanceStatus
 
 
 class MaintenanceRequest(Base):
-    """
-    ORM model for the "maintenance_requests" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - asset_id: FK -> assets.id NOT NULL
-    # - raised_by: FK -> users.id NOT NULL
-    # - issue_description: TEXT NOT NULL
-    # - priority: maintenance_priority ENUM ('Low','Medium','High','Critical')
-    # - photo_url: VARCHAR(500)
-    # - status: maintenance_status ENUM ('Pending','Approved','Rejected','Technician Assigned','In Progress','Resolved')
-    # - reviewed_by: FK -> users.id (nullable, Asset Manager)
-    # - reviewed_at: TIMESTAMPTZ (nullable)
-    # - rejection_reason: TEXT
-    # - technician_name / technician_contact: VARCHAR
-    # - technician_assigned_at / in_progress_at / resolved_at: TIMESTAMPTZ (nullable)
-    # - resolution_notes: TEXT
-    # - created_at / updated_at: TIMESTAMPTZ
-
-    Relationships:
-    # - asset: Asset (many-to-one)
-    # - raised_by_user: User (many-to-one)
-    # - reviewed_by_user: User (many-to-one, nullable)
-    """
-
     __tablename__ = "maintenance_requests"
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), nullable=False)
+    raised_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    issue_description: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[MaintenancePriority] = mapped_column(
+        postgresql.ENUM(
+            "Low", "Medium", "High", "Critical",
+            name="maintenance_priority", create_type=False,
+        ),
+        nullable=False,
+        server_default="Medium",
+    )
+    photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    status: Mapped[MaintenanceStatus] = mapped_column(
+        postgresql.ENUM(
+            "Pending", "Approved", "Rejected", "Technician Assigned",
+            "In Progress", "Resolved",
+            name="maintenance_status", create_type=False,
+        ),
+        nullable=False,
+        server_default="Pending",
+    )
+    reviewed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    technician_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    technician_contact: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    technician_assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    in_progress_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="maintenance_requests")
+    raised_by_user: Mapped["User"] = relationship(
+        "User", back_populates="maintenance_requests_raised", foreign_keys=[raised_by]
+    )
+    reviewed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[reviewed_by])

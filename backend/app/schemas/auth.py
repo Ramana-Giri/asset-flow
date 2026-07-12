@@ -1,102 +1,50 @@
-"""
-Auth Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import datetime
 
-Purpose
--------
-Request/response contracts for Signup, Login, Refresh (session renewal), Forgot/Reset Password, Logout and Session Validation.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/auth.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 
 
 class SignupRequest(BaseModel):
-    """
-    Signup payload: name, email, password. Role is NEVER accepted here (always defaults to Employee server-side).
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    name: str = Field(..., min_length=1, max_length=150)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
 
 
 class LoginRequest(BaseModel):
-    """
-    Login payload: email, password.
+    email: EmailStr
+    password: str = Field(..., min_length=1)
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class LoginUserSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    email: EmailStr
+    role: str
+    department_id: Optional[int] = None
 
 
 class LoginResponse(BaseModel):
-    """
-    Login result: session token (opaque, non-JWT), user summary, expiry.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    session_token: str
+    expires_at: datetime
+    user: LoginUserSummary
 
 
 class ForgotPasswordRequest(BaseModel):
-    """
-    Payload: email.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    email: EmailStr
 
 
 class ResetPasswordRequest(BaseModel):
-    """
-    Payload: reset token, new password.
+    token: str
+    new_password: str = Field(..., min_length=8, max_length=128)
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
 
-    pass
+class LogoutRequest(BaseModel):
+    session_token: Optional[str] = None
 
 
 class SessionValidationResponse(BaseModel):
-    """
-    Result of validating the current session token.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    valid: bool
+    user: Optional[LoginUserSummary] = None
+    expires_at: Optional[datetime] = None

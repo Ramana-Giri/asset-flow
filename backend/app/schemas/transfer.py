@@ -1,90 +1,53 @@
-"""
-Transfer Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import datetime
 
-Purpose
--------
-Transfer request workflow contracts (Requested -> Approved/Rejected -> Completed).
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/transfer.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class TransferRequestCreate(BaseModel):
-    """
-    asset_id, to_user_id XOR to_department_id, reason.
+    asset_id: int
+    to_user_id: Optional[int] = None
+    to_department_id: Optional[int] = None
+    reason: Optional[str] = None
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    @model_validator(mode="after")
+    def check_target(self):
+        if not self.to_user_id and not self.to_department_id:
+            raise ValueError("Either to_user_id or to_department_id must be provided")
+        return self
 
 
 class TransferDecision(BaseModel):
-    """
-    Approve/Reject payload used by Asset Manager / Department Head.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    approve: bool
+    rejection_reason: Optional[str] = None
 
 
 class TransferResponse(BaseModel):
-    """
-    Transfer representation including resolved asset/target summaries.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    from_allocation_id: Optional[int] = None
+    requested_by: int
+    to_user_id: Optional[int] = None
+    to_department_id: Optional[int] = None
+    reason: Optional[str] = None
+    status: str
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    new_allocation_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class TransferListResponse(BaseModel):
-    """
-    Paginated list wrapper.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[TransferResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class TransferFilter(BaseModel):
-    """
-    Search/filter params: asset_id, status, requested_by.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: Optional[int] = None
+    status: Optional[str] = None
+    requested_by: Optional[int] = None

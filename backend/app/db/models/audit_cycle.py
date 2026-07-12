@@ -1,62 +1,53 @@
-"""
-AuditCycle Model  (table: "audit_cycles")
+from __future__ import annotations
+from datetime import datetime, date
+from typing import Optional, List
 
-Purpose
--------
-A scheduled/structured verification cycle scoped by department and/or location and a date range.
-
-Responsibilities
------------------
-- Maps ORM attributes 1:1 to the "audit_cycles" table defined in assetflow_schema.sql.
-- Declares relationships to related entities for ORM (lazy) navigation.
-- Contains NO business logic, NO validation logic, NO query logic.
-
-Interacts With
---------------
-- db/base.py -> inherits the shared DeclarativeBase.
-- repositories/*_repository.py -> the only layer permitted to query/persist AuditCycle directly.
-- SQLAlchemy relationship()s mirror the FKs declared in assetflow_schema.sql.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from sqlalchemy import Integer, ForeignKey, DateTime, Date, String, CheckConstraint, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+from app.core.enums import AuditCycleStatus
 
 
 class AuditCycle(Base):
-    """
-    ORM model for the "audit_cycles" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - name: VARCHAR(150) NOT NULL
-    # - scope_department_id: FK -> departments.id (nullable)
-    # - scope_location: VARCHAR(150)
-    # - start_date / end_date: DATE NOT NULL (CHECK end_date >= start_date)
-    # - status: audit_cycle_status ENUM ('Planned','In Progress','Closed')
-    # - created_by: FK -> users.id NOT NULL
-    # - closed_by: FK -> users.id (nullable)
-    # - closed_at: TIMESTAMPTZ (nullable)
-    # - created_at / updated_at: TIMESTAMPTZ
-
-    Relationships:
-    # - scope_department: Department (many-to-one, nullable)
-    # - created_by_user: User (many-to-one)
-    # - closed_by_user: User (many-to-one, nullable)
-    # - auditors: list[AuditCycleAuditor]
-    # - items: list[AuditItem]
-    """
-
     __tablename__ = "audit_cycles"
+    __table_args__ = (
+        CheckConstraint("end_date >= start_date", name="chk_audit_dates"),
+    )
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    scope_department_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("departments.id"), nullable=True
+    )
+    scope_location: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[AuditCycleStatus] = mapped_column(
+        postgresql.ENUM(
+            "Planned", "In Progress", "Closed",
+            name="audit_cycle_status", create_type=False,
+        ),
+        nullable=False,
+        server_default="Planned",
+    )
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    closed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    scope_department: Mapped[Optional["Department"]] = relationship(
+        "Department", foreign_keys=[scope_department_id]
+    )
+    created_by_user: Mapped["User"] = relationship("User", foreign_keys=[created_by])
+    closed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[closed_by])
+    auditors: Mapped[List["AuditCycleAuditor"]] = relationship(
+        "AuditCycleAuditor", back_populates="audit_cycle", cascade="all, delete-orphan"
+    )
+    items: Mapped[List["AuditItem"]] = relationship(
+        "AuditItem", back_populates="audit_cycle", cascade="all, delete-orphan"
+    )

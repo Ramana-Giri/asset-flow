@@ -1,90 +1,59 @@
-"""
-Booking Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import datetime
 
-Purpose
--------
-Resource booking contracts: create, cancel, reschedule, calendar view.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/booking.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class BookingCreate(BaseModel):
-    """
-    asset_id, start_time, end_time, purpose, department_id (optional, booked on behalf of).
+    asset_id: int
+    start_time: datetime
+    end_time: datetime
+    purpose: Optional[str] = Field(None, max_length=255)
+    department_id: Optional[int] = None
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    @model_validator(mode="after")
+    def check_times(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
 
 
 class BookingReschedule(BaseModel):
-    """
-    New start_time/end_time for an existing booking.
+    start_time: datetime
+    end_time: datetime
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    @model_validator(mode="after")
+    def check_times(self):
+        if self.end_time <= self.start_time:
+            raise ValueError("end_time must be after start_time")
+        return self
 
 
 class BookingResponse(BaseModel):
-    """
-    Booking representation.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    asset_id: int
+    booked_by: int
+    department_id: Optional[int] = None
+    start_time: datetime
+    end_time: datetime
+    purpose: Optional[str] = None
+    status: str
+    cancelled_by: Optional[int] = None
+    cancelled_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class BookingListResponse(BaseModel):
-    """
-    Paginated list wrapper.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[BookingResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 class BookingCalendarFilter(BaseModel):
-    """
-    asset_id, date range, for the calendar view.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: int
+    range_start: datetime
+    range_end: datetime

@@ -1,63 +1,85 @@
-"""
-ReportRepository
+from __future__ import annotations
+from datetime import datetime, timedelta
+from typing import Optional, Sequence
 
-Purpose
--------
-Encapsulates all direct PostgreSQL access for the None (aggregate queries span multiple tables) entity (and closely related child rows).
-
-Responsibilities
------------------
-- Only database operations (SELECT/INSERT/UPDATE/DELETE via SQLAlchemy 2.0 ORM).
-- No business logic. No HTTP exceptions (raises at most a 'not found in DB' sentinel/None).
-- Reusable by any service that needs this entity's persistence.
-
-Interacts With
---------------
-- repositories/base.py -> inherits generic CRUD/pagination behaviour.
-- services/*.py -> the only layer permitted to call ReportRepository directly.
-- db/models/*.py -> operates on the None (aggregate queries span multiple tables) ORM model (and related models where noted).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories.base import BaseRepository
-# from app.db.models.report import None
+
+from app.db.models.asset import Asset
+from app.db.models.allocation import Allocation
+from app.db.models.booking import ResourceBooking
+from app.db.models.maintenance import MaintenanceRequest
 
 
-class ReportRepository(BaseRepository):
-    """
-    Repository for the None (aggregate queries span multiple tables) entity.
-
-    Inherits generic find_by_id / create / update / delete / list_all /
-    search from BaseRepository, and adds the entity-specific query
-    methods below.
-    """
+class ReportRepository:
+    """Aggregate/analytics queries spanning multiple tables; not tied to a single model."""
 
     def __init__(self, session: AsyncSession):
-        """Bind this repository to the given DB session and its ORM model."""
-        # super().__init__(session, None)
-        pass
+        self.session = session
 
-    async def asset_utilization(self, *args, **kwargs):
-        """Aggregate allocation/booking counts per asset to rank most-used vs idle."""
-        pass
+    async def asset_utilization(self) -> Sequence[dict]:
+        alloc_counts = await self.session.execute(
+            select(Allocation.asset_id, func.count().label("allocation_count"))
+            .group_by(Allocation.asset_id)
+        )
+        booking_counts = await self.session.execute(
+            select(ResourceBooking.asset_id, func.count().label("booking_count"))
+            .group_by(ResourceBooking.asset_id)
+        )
+        alloc_map = {row.asset_id: row.allocation_count for row in alloc_counts}
+        booking_map = {row.asset_id: row.booking_count for row in booking_counts}
+        asset_ids = set(alloc_map) | set(booking_map)
+        return [
+            {
+                "asset_id": asset_id,
+                "allocation_count": alloc_map.get(asset_id, 0),
+                "booking_count": booking_map.get(asset_id, 0),
+            }
+            for asset_id in asset_ids
+        ]
 
-    async def department_summary(self, *args, **kwargs):
-        """Aggregate allocation counts grouped by department."""
-        pass
+    async def department_summary(self) -> Sequence[dict]:
+        result = await self.session.execute(
+            select(Allocation.allocated_to_department_id, func.count().label("allocation_count"))
+            .where(Allocation.allocated_to_department_id.is_not(None))
+            .group_by(Allocation.allocated_to_department_id)
+        )
+        return [
+            {"department_id": row.allocated_to_department_id, "allocation_count": row.allocation_count}
+            for row in result
+        ]
 
-    async def maintenance_summary(self, *args, **kwargs):
-        """Aggregate maintenance_requests counts grouped by asset/category."""
-        pass
+    async def maintenance_summary(self) -> Sequence[dict]:
+        result = await self.session.execute(
+            select(MaintenanceRequest.asset_id, func.count().label("request_count"))
+            .group_by(MaintenanceRequest.asset_id)
+        )
+        return [{"asset_id": row.asset_id, "request_count": row.request_count} for row in result]
 
-    async def booking_heatmap(self, *args, **kwargs):
-        """Aggregate resource_bookings counts by weekday/hour bucket."""
-        pass
+    async def booking_heatmap(self) -> Sequence[dict]:
+        result = await self.session.execute(
+            select(
+                func.extract("dow", ResourceBooking.start_time).label("weekday"),
+                func.extract("hour", ResourceBooking.start_time).label("hour"),
+                func.count().label("booking_count"),
+            ).group_by("weekday", "hour")
+        )
+        return [
+            {"weekday": int(row.weekday), "hour": int(row.hour), "booking_count": row.booking_count}
+            for row in result
+        ]
 
-    async def idle_assets(self, *args, **kwargs):
-        """List assets with no allocation/booking activity in N days, or approaching typical retirement age."""
-        pass
+    async def idle_assets(self, days: int = 90) -> Sequence[Asset]:
+        cutoff = datetime.now() - timedelta(days=days)
+        active_asset_ids_alloc = await self.session.execute(
+            select(Allocation.asset_id).where(Allocation.created_at >= cutoff)
+        )
+        active_asset_ids_booking = await self.session.execute(
+            select(ResourceBooking.asset_id).where(ResourceBooking.created_at >= cutoff)
+        )
+        active_ids = {r for (r,) in active_asset_ids_alloc} | {r for (r,) in active_asset_ids_booking}
+        query = select(Asset)
+        if active_ids:
+            query = query.where(Asset.id.not_in(active_ids))
+        result = await self.session.execute(query)
+        return result.scalars().all()

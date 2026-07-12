@@ -1,126 +1,79 @@
-"""
-Audit Schemas
+from __future__ import annotations
+from typing import Optional
+from datetime import date, datetime
 
-Purpose
--------
-Audit cycle contracts: create cycle, assign auditors, verify assets, discrepancy report, close cycle.
-
-Responsibilities
------------------
-- Validate request payloads (Create/Update/Filter) coming from routers.
-- Shape response payloads (Response/List) returned to routers.
-- Own field-level VALIDATION rules only (required fields, formats, lengths).
-- Never contain business RULES (those belong in the Service layer).
-
-Interacts With
---------------
-- api/v1/audits.py -> routers import these schemas as request/response models.
-- services/*.py -> services receive/return these schema objects (not raw ORM models).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from pydantic import BaseModel
-
-# NOTE: In the real implementation, add `from typing import Optional`,
-# `from datetime import date, datetime`, ConfigDict(from_attributes=True),
-# and Field(...) constraints as needed per class below.
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class AuditCycleCreate(BaseModel):
-    """
-    name, scope_department_id (optional), scope_location (optional), start_date, end_date.
+    name: str = Field(..., min_length=1, max_length=150)
+    scope_department_id: Optional[int] = None
+    scope_location: Optional[str] = Field(None, max_length=150)
+    start_date: date
+    end_date: date
 
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    @model_validator(mode="after")
+    def check_dates(self):
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        return self
 
 
 class AuditorAssign(BaseModel):
-    """
-    List of auditor user_ids to assign to a cycle.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    auditor_ids: list[int] = Field(..., min_length=1)
 
 
 class AuditItemVerify(BaseModel):
-    """
-    result (Verified/Missing/Damaged), remarks, for a single asset within a cycle.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    asset_id: int
+    result: str = Field(..., description="Verified, Missing, or Damaged")
+    remarks: Optional[str] = None
 
 
 class AuditDiscrepancyResolve(BaseModel):
-    """
-    Resolution payload for a flagged (Missing/Damaged) audit item.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    resolution_notes: Optional[str] = None
 
 
 class AuditCycleResponse(BaseModel):
-    """
-    Audit cycle representation including auditor list and item summary counts.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    scope_department_id: Optional[int] = None
+    scope_location: Optional[str] = None
+    start_date: date
+    end_date: date
+    status: str
+    created_by: int
+    closed_by: Optional[int] = None
+    closed_at: Optional[datetime] = None
+    auditor_ids: list[int] = Field(default_factory=list)
+    total_items: int = 0
+    verified_count: int = 0
+    discrepancy_count: int = 0
+    created_at: datetime
+    updated_at: datetime
 
 
 class AuditItemResponse(BaseModel):
-    """
-    Single audit item representation.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    audit_cycle_id: int
+    asset_id: int
+    auditor_id: Optional[int] = None
+    result: Optional[str] = None
+    remarks: Optional[str] = None
+    checked_at: Optional[datetime] = None
+    resolution_status: str
+    resolved_by: Optional[int] = None
+    resolved_at: Optional[datetime] = None
 
 
 class AuditDiscrepancyReportResponse(BaseModel):
-    """
-    Aggregated list of Missing/Damaged items for a cycle.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    audit_cycle_id: int
+    items: list[AuditItemResponse]
 
 
 class AuditCycleListResponse(BaseModel):
-    """
-    Paginated list wrapper.
-
-    Field-level validation constraints (max length, required/optional,
-    format) are intentionally omitted from this skeleton and would be
-    declared here using Pydantic v2 `Field(...)` / validators.
-    """
-
-    pass
+    items: list[AuditCycleResponse]
+    total: int
+    skip: int
+    limit: int

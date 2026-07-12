@@ -1,68 +1,64 @@
-"""
-Allocation Model  (table: "allocations")
+from __future__ import annotations
+from datetime import datetime, date
+from typing import Optional, List
 
-Purpose
--------
-Records an asset being held by an employee OR a department. A DB partial unique index guarantees only one 'Active' allocation per asset at a time (no double-allocation).
-
-Responsibilities
------------------
-- Maps ORM attributes 1:1 to the "allocations" table defined in assetflow_schema.sql.
-- Declares relationships to related entities for ORM (lazy) navigation.
-- Contains NO business logic, NO validation logic, NO query logic.
-
-Interacts With
---------------
-- db/base.py -> inherits the shared DeclarativeBase.
-- repositories/*_repository.py -> the only layer permitted to query/persist Allocation directly.
-- SQLAlchemy relationship()s mirror the FKs declared in assetflow_schema.sql.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from sqlalchemy import Integer, ForeignKey, DateTime, Date, Text, CheckConstraint, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+from app.core.enums import AllocationTarget, AllocationStatus
 
 
 class Allocation(Base):
-    """
-    ORM model for the "allocations" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - asset_id: FK -> assets.id NOT NULL
-    # - allocated_to_type: allocation_target ENUM ('Employee','Department')
-    # - allocated_to_user_id: FK -> users.id (nullable, set when target=Employee)
-    # - allocated_to_department_id: FK -> departments.id (nullable, set when target=Department)
-    # - allocated_by: FK -> users.id NOT NULL (Asset Manager)
-    # - allocation_date: DATE DEFAULT CURRENT_DATE
-    # - expected_return_date: DATE (nullable)
-    # - actual_return_date: DATE (nullable)
-    # - return_condition_notes: TEXT
-    # - returned_by: FK -> users.id (nullable)
-    # - status: allocation_status ENUM ('Active','Returned')
-    # - created_at / updated_at: TIMESTAMPTZ
-    # - CHECK chk_allocation_target: exactly one of user/department set based on allocated_to_type
-    # - UNIQUE INDEX uq_one_active_allocation_per_asset: WHERE status='Active'
-
-    Relationships:
-    # - asset: Asset (many-to-one)
-    # - allocated_to_user: User (many-to-one, nullable)
-    # - allocated_to_department: Department (many-to-one, nullable)
-    # - allocated_by_user: User (many-to-one, Asset Manager)
-    # - returned_by_user: User (many-to-one, nullable)
-    # - transfer_requests_from: list[TransferRequest] (as from_allocation)
-    """
-
     __tablename__ = "allocations"
+    __table_args__ = (
+        CheckConstraint(
+            "(allocated_to_type = 'Employee' AND allocated_to_user_id IS NOT NULL "
+            "AND allocated_to_department_id IS NULL) OR "
+            "(allocated_to_type = 'Department' AND allocated_to_department_id IS NOT NULL "
+            "AND allocated_to_user_id IS NULL)",
+            name="chk_allocation_target",
+        ),
+    )
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), nullable=False)
+    allocated_to_type: Mapped[AllocationTarget] = mapped_column(
+        postgresql.ENUM("Employee", "Department", name="allocation_target", create_type=False),
+        nullable=False,
+    )
+    allocated_to_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    allocated_to_department_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("departments.id"), nullable=True
+    )
+    allocated_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    allocation_date: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    expected_return_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    actual_return_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    return_condition_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    returned_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    status: Mapped[AllocationStatus] = mapped_column(
+        postgresql.ENUM("Active", "Returned", name="allocation_status", create_type=False),
+        nullable=False,
+        server_default="Active",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="allocations")
+    allocated_to_user: Mapped[Optional["User"]] = relationship(
+        "User", back_populates="allocations_received", foreign_keys=[allocated_to_user_id]
+    )
+    allocated_to_department: Mapped[Optional["Department"]] = relationship(
+        "Department", foreign_keys=[allocated_to_department_id]
+    )
+    allocated_by_user: Mapped["User"] = relationship(
+        "User", back_populates="allocations_made", foreign_keys=[allocated_by]
+    )
+    returned_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[returned_by])
+    transfer_requests_from: Mapped[List["TransferRequest"]] = relationship(
+        "TransferRequest", back_populates="from_allocation", foreign_keys="TransferRequest.from_allocation_id"
+    )

@@ -1,57 +1,33 @@
-"""
-AssetStatusHistory Model  (table: "asset_status_history")
+from __future__ import annotations
+from datetime import datetime
+from typing import Optional
 
-Purpose
--------
-Full lifecycle audit trail of every asset status transition (Available <-> Under Maintenance, etc). Populated automatically by a DB trigger (log_asset_status_change) whenever assets.status changes, in addition to any explicit service-side inserts.
-
-Responsibilities
------------------
-- Maps ORM attributes 1:1 to the "asset_status_history" table defined in assetflow_schema.sql.
-- Declares relationships to related entities for ORM (lazy) navigation.
-- Contains NO business logic, NO validation logic, NO query logic.
-
-Interacts With
---------------
-- db/base.py -> inherits the shared DeclarativeBase.
-- repositories/*_repository.py -> the only layer permitted to query/persist AssetStatusHistory directly.
-- SQLAlchemy relationship()s mirror the FKs declared in assetflow_schema.sql.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from sqlalchemy import String, Integer, ForeignKey, DateTime, func
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.core.enums import AssetStatus
 
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+_ASSET_STATUS_ENUM = postgresql.ENUM(
+    "Available", "Allocated", "Reserved", "Under Maintenance",
+    "Lost", "Retired", "Disposed",
+    name="asset_status", create_type=False,
+)
 
 
 class AssetStatusHistory(Base):
-    """
-    ORM model for the "asset_status_history" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - asset_id: FK -> assets.id NOT NULL
-    # - old_status / new_status: asset_status ENUM (old nullable)
-    # - changed_by: FK -> users.id (nullable)
-    # - reason: VARCHAR(255)
-    # - reference_type: VARCHAR(50) (Allocation, Maintenance, Audit, Manual)
-    # - reference_id: INT (nullable)
-    # - changed_at: TIMESTAMPTZ
-
-    Relationships:
-    # - asset: Asset (many-to-one)
-    # - changed_by_user: User (many-to-one, nullable)
-    """
-
     __tablename__ = "asset_status_history"
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)
+    old_status: Mapped[Optional[AssetStatus]] = mapped_column(_ASSET_STATUS_ENUM, nullable=True)
+    new_status: Mapped[AssetStatus] = mapped_column(_ASSET_STATUS_ENUM, nullable=False)
+    changed_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reference_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    reference_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="status_history")
+    changed_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[changed_by])
