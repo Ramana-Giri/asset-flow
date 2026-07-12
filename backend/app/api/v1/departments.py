@@ -1,89 +1,75 @@
-"""
-Departments Router
-
-Purpose
--------
-HTTP endpoints for the Departments module, mounted under prefix "/departments".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to DepartmentService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/departments.py -> request/response models.
-- services/departments_service.py -> DepartmentService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_user, get_current_admin
+from app.core.responses import success
+from app.repositories.department_repository import DepartmentRepository
+from app.repositories.user_repository import UserRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.repositories.notification_repository import NotificationRepository
+from app.services.department_service import DepartmentService
+from app.services.activity_log_service import ActivityLogService
+from app.services.notification_service import NotificationService
+from app.schemas.department import DepartmentCreate, DepartmentUpdate, DepartmentFilter
 
 router = APIRouter(prefix="/departments", tags=["Departments"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
+
+def get_department_service(db: AsyncSession = Depends(get_db)) -> DepartmentService:
+    return DepartmentService(
+        DepartmentRepository(db),
+        UserRepository(db),
+        ActivityLogService(ActivityLogRepository(db)),
+        NotificationService(NotificationRepository(db)),
+    )
 
 
 @router.get("")
-async def list_departments():
-    """
-    List/search departments (Screen 3, Tab A).
+async def list_departments(
+    filters: DepartmentFilter = Depends(), skip: int = 0, limit: int = 50, service: DepartmentService = Depends(get_department_service)
+):
+    page = await service.list_departments(filters.model_dump(exclude_none=True), skip, limit)
+    return success(data={"items": page.items, "total": page.total, "skip": page.skip, "limit": page.limit})
 
-    Flow: receive request -> validate schema -> call DepartmentService.list_departments() -> return standard envelope.
-    """
-    pass
 
 @router.get("/{department_id}")
-async def get_department():
-    """
-    Fetch a single department, incl. hierarchy.
+async def get_department(department_id: int, service: DepartmentService = Depends(get_department_service)):
+    department = await service.get_department(department_id)
+    return success(data=department)
 
-    Flow: receive request -> validate schema -> call DepartmentService.get_department() -> return standard envelope.
-    """
-    pass
 
 @router.post("")
-async def create_department():
-    """
-    Admin-only: create a department.
+async def create_department(
+    payload: DepartmentCreate, service: DepartmentService = Depends(get_department_service), admin=Depends(get_current_admin)
+):
+    department = await service.create_department(
+        payload.name, payload.parent_department_id, payload.head_user_id, admin.id
+    )
+    return success(data=department, message="Department created")
 
-    Flow: receive request -> validate schema -> call DepartmentService.create_department() -> return standard envelope.
-    """
-    pass
 
 @router.put("/{department_id}")
-async def update_department():
-    """
-    Admin-only: edit a department (blocks circular parent).
+async def update_department(
+    department_id: int,
+    payload: DepartmentUpdate,
+    service: DepartmentService = Depends(get_department_service),
+    admin=Depends(get_current_admin),
+):
+    department = await service.update_department(department_id, payload.model_dump(exclude_none=True), admin.id)
+    return success(data=department, message="Department updated")
 
-    Flow: receive request -> validate schema -> call DepartmentService.update_department() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{department_id}/head")
-async def assign_head():
-    """
-    Admin-only: assign the Department Head.
+async def assign_head(
+    department_id: int, head_user_id: int, service: DepartmentService = Depends(get_department_service), admin=Depends(get_current_admin)
+):
+    department = await service.assign_head(department_id, head_user_id, admin.id)
+    return success(data=department, message="Department Head assigned")
 
-    Flow: receive request -> validate schema -> call DepartmentService.assign_head() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{department_id}/deactivate")
-async def deactivate_department():
-    """
-    Admin-only: deactivate a department.
-
-    Flow: receive request -> validate schema -> call DepartmentService.deactivate_department() -> return standard envelope.
-    """
-    pass
+async def deactivate_department(
+    department_id: int, service: DepartmentService = Depends(get_department_service), admin=Depends(get_current_admin)
+):
+    department = await service.deactivate_department(department_id, admin.id)
+    return success(data=department, message="Department deactivated")

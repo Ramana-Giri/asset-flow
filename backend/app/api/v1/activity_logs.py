@@ -1,44 +1,26 @@
-"""
-Activity Logs Router
-
-Purpose
--------
-HTTP endpoints for the Activity Logs module, mounted under prefix "/activity-logs".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to ActivityLogService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/activity_logs.py -> request/response models.
-- services/activity_logs_service.py -> ActivityLogService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_admin
+from app.core.responses import success
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.services.activity_log_service import ActivityLogService
+from app.schemas.activity_log import ActivityLogFilter
 
 router = APIRouter(prefix="/activity-logs", tags=["Activity Logs"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
+
+def get_activity_log_service(db: AsyncSession = Depends(get_db)) -> ActivityLogService:
+    return ActivityLogService(ActivityLogRepository(db))
 
 
 @router.get("")
-async def list_activity_logs():
-    """
-    Search/paginate the full activity log (Screen 10).
-
-    Flow: receive request -> validate schema -> call ActivityLogService.list_activity_logs() -> return standard envelope.
-    """
-    pass
+async def search_activity_logs(
+    filters: ActivityLogFilter = Depends(),
+    skip: int = 0,
+    limit: int = 50,
+    service: ActivityLogService = Depends(get_activity_log_service),
+    admin=Depends(get_current_admin),
+):
+    page = await service.search(**filters.model_dump(exclude_none=True), skip=skip, limit=limit)
+    return success(data={"items": page.items, "total": page.total, "skip": page.skip, "limit": page.limit})

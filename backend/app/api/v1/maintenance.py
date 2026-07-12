@@ -1,98 +1,99 @@
-"""
-Maintenance Router
-
-Purpose
--------
-HTTP endpoints for the Maintenance module, mounted under prefix "/maintenance".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to MaintenanceService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/maintenance.py -> request/response models.
-- services/maintenance_service.py -> MaintenanceService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_user, get_current_asset_manager
+from app.core.responses import success
+from app.repositories.maintenance_repository import MaintenanceRepository
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.asset_category_repository import AssetCategoryRepository
+from app.repositories.department_repository import DepartmentRepository
+from app.repositories.allocation_repository import AllocationRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.repositories.notification_repository import NotificationRepository
+from app.services.maintenance_service import MaintenanceService
+from app.services.asset_service import AssetService
+from app.services.notification_service import NotificationService
+from app.services.activity_log_service import ActivityLogService
+from app.schemas.maintenance import (
+    MaintenanceRequestCreate, MaintenanceDecision, MaintenanceTechnicianAssign, MaintenanceResolve,
+)
 
 router = APIRouter(prefix="/maintenance", tags=["Maintenance"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
 
+def get_maintenance_service(db: AsyncSession = Depends(get_db)) -> MaintenanceService:
+    asset_service = AssetService(
+        AssetRepository(db),
+        AssetCategoryRepository(db),
+        DepartmentRepository(db),
+        AllocationRepository(db),
+        MaintenanceRepository(db),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
+    return MaintenanceService(
+        MaintenanceRepository(db),
+        AssetRepository(db),
+        asset_service,
+        NotificationService(NotificationRepository(db)),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
 
-@router.get("")
-async def list_requests():
-    """
-    List/filter maintenance requests.
-
-    Flow: receive request -> validate schema -> call MaintenanceService.list_requests() -> return standard envelope.
-    """
-    pass
 
 @router.post("")
-async def raise_request():
-    """
-    Raise a maintenance request (Screen 7).
+async def raise_request(
+    payload: MaintenanceRequestCreate, service: MaintenanceService = Depends(get_maintenance_service), actor=Depends(get_current_user)
+):
+    request = await service.raise_request(
+        payload.asset_id, actor.id, payload.issue_description, payload.priority, payload.photo_url
+    )
+    return success(data=request, message="Maintenance request raised")
 
-    Flow: receive request -> validate schema -> call MaintenanceService.raise_request() -> return standard envelope.
-    """
-    pass
 
-@router.patch("/{request_id}/approve")
-async def approve_request():
-    """
-    Asset Manager: approve (asset -> Under Maintenance).
+@router.patch("/{request_id}/decision")
+async def decide_request(
+    request_id: int,
+    payload: MaintenanceDecision,
+    service: MaintenanceService = Depends(get_maintenance_service),
+    actor=Depends(get_current_asset_manager),
+):
+    if payload.approve:
+        request = await service.approve_request(request_id, actor.id, actor.role)
+        return success(data=request, message="Maintenance request approved")
+    request = await service.reject_request(request_id, actor.id, payload.rejection_reason)
+    return success(data=request, message="Maintenance request rejected")
 
-    Flow: receive request -> validate schema -> call MaintenanceService.approve_request() -> return standard envelope.
-    """
-    pass
 
-@router.patch("/{request_id}/reject")
-async def reject_request():
-    """
-    Asset Manager: reject with reason.
+@router.patch("/{request_id}/technician")
+async def assign_technician(
+    request_id: int,
+    payload: MaintenanceTechnicianAssign,
+    service: MaintenanceService = Depends(get_maintenance_service),
+    actor=Depends(get_current_asset_manager),
+):
+    request = await service.assign_technician(request_id, payload.technician_name, payload.technician_contact, actor.id)
+    return success(data=request, message="Technician assigned")
 
-    Flow: receive request -> validate schema -> call MaintenanceService.reject_request() -> return standard envelope.
-    """
-    pass
-
-@router.patch("/{request_id}/assign-technician")
-async def assign_technician():
-    """
-    Assign technician name/contact.
-
-    Flow: receive request -> validate schema -> call MaintenanceService.assign_technician() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{request_id}/start")
-async def start_progress():
-    """
-    Mark In Progress.
+async def start_progress(
+    request_id: int, service: MaintenanceService = Depends(get_maintenance_service), actor=Depends(get_current_asset_manager)
+):
+    request = await service.start_progress(request_id, actor.id)
+    return success(data=request, message="Maintenance in progress")
 
-    Flow: receive request -> validate schema -> call MaintenanceService.start_progress() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{request_id}/resolve")
-async def resolve_request():
-    """
-    Resolve (asset -> Available).
+async def resolve_request(
+    request_id: int,
+    payload: MaintenanceResolve,
+    service: MaintenanceService = Depends(get_maintenance_service),
+    actor=Depends(get_current_asset_manager),
+):
+    request = await service.resolve_request(request_id, payload.resolution_notes, actor.id)
+    return success(data=request, message="Maintenance resolved")
 
-    Flow: receive request -> validate schema -> call MaintenanceService.resolve_request() -> return standard envelope.
-    """
-    pass
+
+@router.get("/asset/{asset_id}")
+async def get_maintenance_history(asset_id: int, service: MaintenanceService = Depends(get_maintenance_service)):
+    history = await service.get_maintenance_history(asset_id)
+    return success(data=history)

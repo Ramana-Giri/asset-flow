@@ -1,89 +1,76 @@
-"""
-Assets Router
+from fastapi import APIRouter, Depends, UploadFile, File, Form
+from sqlalchemy.ext.asyncio import AsyncSession
 
-Purpose
--------
-HTTP endpoints for the Assets module, mounted under prefix "/assets".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to AssetService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/assets.py -> request/response models.
-- services/assets_service.py -> AssetService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
-from fastapi import APIRouter, Depends
+from app.dependencies import get_db, get_current_user, get_current_asset_manager
+from app.core.responses import success
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.asset_category_repository import AssetCategoryRepository
+from app.repositories.department_repository import DepartmentRepository
+from app.repositories.allocation_repository import AllocationRepository
+from app.repositories.maintenance_repository import MaintenanceRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.services.asset_service import AssetService
+from app.services.activity_log_service import ActivityLogService
+from app.schemas.asset import AssetCreate, AssetUpdate, AssetFilter
 
 router = APIRouter(prefix="/assets", tags=["Assets"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
+
+def get_asset_service(db: AsyncSession = Depends(get_db)) -> AssetService:
+    return AssetService(
+        AssetRepository(db),
+        AssetCategoryRepository(db),
+        DepartmentRepository(db),
+        AllocationRepository(db),
+        MaintenanceRepository(db),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
 
 
 @router.get("")
-async def search_assets():
-    """
-    Search/filter assets by tag, serial, QR, category, status, department, location (Screen 4).
+async def search_assets(
+    filters: AssetFilter = Depends(), skip: int = 0, limit: int = 50, service: AssetService = Depends(get_asset_service)
+):
+    page = await service.search_assets(filters.model_dump(exclude_none=True), skip, limit)
+    return success(data={"items": page.items, "total": page.total, "skip": page.skip, "limit": page.limit})
 
-    Flow: receive request -> validate schema -> call AssetService.search_assets() -> return standard envelope.
-    """
-    pass
 
 @router.get("/{asset_id}")
-async def get_asset():
-    """
-    Fetch a single asset.
+async def get_asset(asset_id: int, service: AssetService = Depends(get_asset_service)):
+    page = await service.search_assets({}, skip=0, limit=1)
+    asset = next((a for a in page.items if a.id == asset_id), None)
+    return success(data=asset)
 
-    Flow: receive request -> validate schema -> call AssetService.get_asset() -> return standard envelope.
-    """
-    pass
 
 @router.post("")
-async def register_asset():
-    """
-    Asset Manager: register a new asset (auto Asset Tag, status=Available).
+async def register_asset(
+    payload: AssetCreate, service: AssetService = Depends(get_asset_service), actor=Depends(get_current_asset_manager)
+):
+    asset = await service.register_asset(payload.model_dump(exclude_none=True), actor.id)
+    return success(data=asset, message="Asset registered")
 
-    Flow: receive request -> validate schema -> call AssetService.register_asset() -> return standard envelope.
-    """
-    pass
 
 @router.put("/{asset_id}")
-async def update_asset():
-    """
-    Update editable asset fields.
+async def update_asset(
+    asset_id: int, payload: AssetUpdate, service: AssetService = Depends(get_asset_service), actor=Depends(get_current_user)
+):
+    asset = await service.update_asset(asset_id, payload.model_dump(exclude_none=True), actor.id)
+    return success(data=asset, message="Asset updated")
 
-    Flow: receive request -> validate schema -> call AssetService.update_asset() -> return standard envelope.
-    """
-    pass
 
 @router.post("/{asset_id}/documents")
-async def upload_document():
-    """
-    Upload a photo/document for an asset.
+async def upload_document(
+    asset_id: int,
+    file: UploadFile = File(...),
+    file_type: str = Form(None),
+    service: AssetService = Depends(get_asset_service),
+    actor=Depends(get_current_user),
+):
+    document = await service.upload_document(asset_id, file, file_type, actor.id)
+    return success(data=document, message="Document uploaded")
 
-    Flow: receive request -> validate schema -> call AssetService.upload_document() -> return standard envelope.
-    """
-    pass
 
 @router.get("/{asset_id}/history")
-async def get_asset_history():
-    """
-    Combined allocation + maintenance + status history.
-
-    Flow: receive request -> validate schema -> call AssetService.get_asset_history() -> return standard envelope.
-    """
-    pass
+async def get_asset_history(asset_id: int, service: AssetService = Depends(get_asset_service)):
+    history = await service.get_asset_history(asset_id)
+    return success(data=history)

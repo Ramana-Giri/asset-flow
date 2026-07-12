@@ -1,71 +1,77 @@
-"""
-Transfers Router
-
-Purpose
--------
-HTTP endpoints for the Transfers module, mounted under prefix "/transfers".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to TransferService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/transfers.py -> request/response models.
-- services/transfers_service.py -> TransferService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_user, get_current_asset_manager
+from app.core.responses import success
+from app.repositories.transfer_repository import TransferRepository
+from app.repositories.allocation_repository import AllocationRepository
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.asset_category_repository import AssetCategoryRepository
+from app.repositories.department_repository import DepartmentRepository
+from app.repositories.maintenance_repository import MaintenanceRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.repositories.notification_repository import NotificationRepository
+from app.services.transfer_service import TransferService
+from app.services.allocation_service import AllocationService
+from app.services.asset_service import AssetService
+from app.services.notification_service import NotificationService
+from app.services.activity_log_service import ActivityLogService
+from app.schemas.transfer import TransferRequestCreate, TransferDecision
 
 router = APIRouter(prefix="/transfers", tags=["Transfers"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
 
+def get_transfer_service(db: AsyncSession = Depends(get_db)) -> TransferService:
+    asset_service = AssetService(
+        AssetRepository(db),
+        AssetCategoryRepository(db),
+        DepartmentRepository(db),
+        AllocationRepository(db),
+        MaintenanceRepository(db),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
+    allocation_service = AllocationService(
+        AllocationRepository(db),
+        AssetRepository(db),
+        asset_service,
+        NotificationService(NotificationRepository(db)),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
+    return TransferService(
+        TransferRepository(db),
+        AllocationRepository(db),
+        AssetRepository(db),
+        allocation_service,
+        NotificationService(NotificationRepository(db)),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
 
-@router.get("")
-async def list_transfers():
-    """
-    List/filter transfer requests.
-
-    Flow: receive request -> validate schema -> call TransferService.list_transfers() -> return standard envelope.
-    """
-    pass
 
 @router.post("")
-async def request_transfer():
-    """
-    Request a transfer for an already-allocated asset.
+async def request_transfer(
+    payload: TransferRequestCreate, service: TransferService = Depends(get_transfer_service), actor=Depends(get_current_user)
+):
+    transfer = await service.request_transfer(
+        payload.asset_id, actor.id, payload.to_user_id, payload.to_department_id, payload.reason
+    )
+    return success(data=transfer, message="Transfer requested")
 
-    Flow: receive request -> validate schema -> call TransferService.request_transfer() -> return standard envelope.
-    """
-    pass
 
-@router.patch("/{transfer_id}/approve")
-async def approve_transfer():
-    """
-    Asset Manager / Department Head: approve + complete.
+@router.patch("/{transfer_id}/decision")
+async def decide_transfer(
+    transfer_id: int,
+    payload: TransferDecision,
+    service: TransferService = Depends(get_transfer_service),
+    actor=Depends(get_current_asset_manager),
+):
+    if payload.approve:
+        transfer = await service.approve_transfer(transfer_id, actor.id, actor.role)
+        return success(data=transfer, message="Transfer approved")
+    transfer = await service.reject_transfer(transfer_id, actor.id)
+    return success(data=transfer, message="Transfer rejected")
 
-    Flow: receive request -> validate schema -> call TransferService.approve_transfer() -> return standard envelope.
-    """
-    pass
 
-@router.patch("/{transfer_id}/reject")
-async def reject_transfer():
-    """
-    Asset Manager / Department Head: reject.
-
-    Flow: receive request -> validate schema -> call TransferService.reject_transfer() -> return standard envelope.
-    """
-    pass
+@router.get("/asset/{asset_id}")
+async def get_transfer_history(asset_id: int, service: TransferService = Depends(get_transfer_service)):
+    history = await service.get_transfer_history(asset_id)
+    return success(data=history)

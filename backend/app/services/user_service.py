@@ -1,89 +1,115 @@
-"""
-UserService
+from __future__ import annotations
+from datetime import datetime, timezone
+from typing import Optional
 
-Purpose
--------
-Employee Directory CRUD, search, activate/deactivate, department assignment, and role promotion (Admin-only, the ONLY place roles are assigned per the requirements).
-
-Responsibilities
------------------
-- Implements ALL business rules and multi-step orchestration for this module.
-- Calls one or more repositories; repositories never call services.
-- Raises domain exceptions (core/exceptions.py) on rule violations - routers translate these to HTTP responses.
-- Coordinates cross-cutting concerns: ActivityLogService and NotificationService, per the orchestration steps below.
-
-Interacts With
---------------
-- repositories/*.py -> UserRepository, DepartmentRepository, ActivityLogService, NotificationService
-- core/exceptions.py -> raises domain-specific exceptions on invalid operations.
-- api/v1/*.py -> the corresponding router calls UserService exclusively (never repositories directly).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from app.repositories.user_repository import UserRepository
+from app.core.security import hash_password
+from app.core.exceptions import NotFoundException, PermissionDenied, ValidationError
+from app.services.activity_log_service import ActivityLogService
+from app.services.notification_service import NotificationService
 
 
 class UserService:
-    """
-    Business-rule orchestrator for this module. See method docstrings
-    below for the exact step-by-step workflow each action performs,
-    derived from the AssetFlow functional requirements.
-    """
+    def __init__(
+        self,
+        user_repository: UserRepository,
+        activity_log_service: ActivityLogService,
+        notification_service: NotificationService,
+    ):
+        self.users = user_repository
+        self.activity_log = activity_log_service
+        self.notifications = notification_service
 
-    def __init__(self, *repositories, **kwargs):
-        """Receive repository/service dependencies via constructor injection (wired in dependencies.py)."""
-        pass
+    async def list_users(self, filters: dict, skip: int = 0, limit: int = 50):
+        return await self.users.search(filters, skip, limit)
 
-    async def list_users(self, *args, **kwargs):
-        """
-        Delegate to UserRepository.search() with UserFilter + pagination.
-        """
-        pass
+    async def get_user(self, user_id: int):
+        user = await self.users.find_by_id(user_id)
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
+        return user
 
-    async def get_user(self, *args, **kwargs):
-        """
-        Fetch by id; raise NotFound if missing.
-        """
-        pass
+    async def create_user(self, name: str, email: str, password: str, department_id: Optional[int], actor_id: int):
+        existing = await self.users.find_by_email(email)
+        if existing is not None:
+            raise ValidationError("Email is already registered")
+        user = await self.users.create(
+            {
+                "name": name,
+                "email": email,
+                "password_hash": hash_password(password),
+                "department_id": department_id,
+                "role": "Employee",
+            }
+        )
+        await self.activity_log.log(
+            user_id=actor_id, action="CREATE_USER", entity_type="User", entity_id=user.id
+        )
+        return user
 
-    async def create_user(self, *args, **kwargs):
-        """
-        Admin-created user (distinct from public signup); hash password; write ActivityLog.
-        """
-        pass
+    async def update_user(self, user_id: int, data: dict, actor_id: int):
+        user = await self.users.update(user_id, data)
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
+        await self.activity_log.log(
+            user_id=actor_id, action="UPDATE_USER", entity_type="User", entity_id=user_id, details=data
+        )
+        return user
 
-    async def update_user(self, *args, **kwargs):
-        """
-        Update editable profile/department fields; write ActivityLog.
-        """
-        pass
+    async def set_department(self, user_id: int, department_id: Optional[int], actor_id: int):
+        user = await self.users.update(user_id, {"department_id": department_id})
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
+        await self.activity_log.log(
+            user_id=actor_id,
+            action="ASSIGN_DEPARTMENT",
+            entity_type="User",
+            entity_id=user_id,
+            details={"department_id": department_id},
+        )
+        return user
 
-    async def set_department(self, *args, **kwargs):
-        """
-        Assign/reassign a user's department_id; write ActivityLog.
-        """
-        pass
+    async def promote_role(self, user_id: int, new_role: str, actor: dict, actor_id: int):
+        if actor.get("role") != "Admin":
+            raise PermissionDenied("Only Admin can promote roles")
+        if new_role not in ("Department Head", "Asset Manager"):
+            raise ValidationError("Role must be 'Department Head' or 'Asset Manager'")
 
-    async def promote_role(self, *args, **kwargs):
-        """
-        1. Assert caller is Admin (enforced again here, defense-in-depth beyond the router dependency).
-        2. Assert target role in ('Department Head','Asset Manager').
-        3. Persist role, promoted_by, promoted_at.
-        4. Create Notification for the promoted user.
-        5. Write ActivityLog ('PROMOTE_USER').
-        """
-        pass
+        user = await self.users.update_role(
+            user_id, new_role, promoted_by=actor_id, promoted_at=datetime.now(timezone.utc)
+        )
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
 
-    async def activate_user(self, *args, **kwargs):
-        """
-        Set status='Active'; write ActivityLog.
-        """
-        pass
+        await self.notifications.notify(
+            user_id=user_id,
+            type="Role Promoted",
+            title="You've been promoted",
+            message=f"You have been promoted to {new_role}.",
+            reference_type="User",
+            reference_id=user_id,
+        )
+        await self.activity_log.log(
+            user_id=actor_id,
+            action="PROMOTE_USER",
+            entity_type="User",
+            entity_id=user_id,
+            details={"new_role": new_role},
+        )
+        return user
 
-    async def deactivate_user(self, *args, **kwargs):
-        """
-        Set status='Inactive'; write ActivityLog. Consider blocking deactivation while user holds Active allocations (policy decision).
-        """
-        pass
+    async def activate_user(self, user_id: int, actor_id: int):
+        user = await self.users.set_status(user_id, "Active")
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
+        await self.activity_log.log(user_id=actor_id, action="ACTIVATE_USER", entity_type="User", entity_id=user_id)
+        return user
+
+    async def deactivate_user(self, user_id: int, actor_id: int):
+        user = await self.users.set_status(user_id, "Inactive")
+        if user is None:
+            raise NotFoundException(f"User {user_id} not found")
+        await self.activity_log.log(
+            user_id=actor_id, action="DEACTIVATE_USER", entity_type="User", entity_id=user_id
+        )
+        return user

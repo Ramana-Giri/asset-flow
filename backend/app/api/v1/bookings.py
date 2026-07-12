@@ -1,71 +1,57 @@
-"""
-Bookings Router
-
-Purpose
--------
-HTTP endpoints for the Bookings module, mounted under prefix "/bookings".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to BookingService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/bookings.py -> request/response models.
-- services/bookings_service.py -> BookingService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
+from datetime import datetime
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_user
+from app.core.responses import success
+from app.repositories.booking_repository import BookingRepository
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.repositories.notification_repository import NotificationRepository
+from app.services.booking_service import BookingService
+from app.services.notification_service import NotificationService
+from app.services.activity_log_service import ActivityLogService
+from app.schemas.booking import BookingCreate, BookingReschedule, BookingCalendarFilter
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
+
+def get_booking_service(db: AsyncSession = Depends(get_db)) -> BookingService:
+    return BookingService(
+        BookingRepository(db),
+        AssetRepository(db),
+        NotificationService(NotificationRepository(db)),
+        ActivityLogService(ActivityLogRepository(db)),
+    )
+
+
+@router.post("")
+async def create_booking(
+    payload: BookingCreate, service: BookingService = Depends(get_booking_service), actor=Depends(get_current_user)
+):
+    booking = await service.create_booking(
+        payload.asset_id, actor.id, payload.start_time, payload.end_time, payload.purpose, payload.department_id
+    )
+    return success(data=booking, message="Booking created")
+
+
+@router.patch("/{booking_id}/cancel")
+async def cancel_booking(
+    booking_id: int, service: BookingService = Depends(get_booking_service), actor=Depends(get_current_user)
+):
+    booking = await service.cancel_booking(booking_id, actor.id)
+    return success(data=booking, message="Booking cancelled")
+
+
+@router.patch("/{booking_id}/reschedule")
+async def reschedule_booking(
+    booking_id: int, payload: BookingReschedule, service: BookingService = Depends(get_booking_service), actor=Depends(get_current_user)
+):
+    booking = await service.reschedule_booking(booking_id, payload.start_time, payload.end_time, actor.id)
+    return success(data=booking, message="Booking rescheduled")
 
 
 @router.get("/calendar")
-async def get_calendar():
-    """
-    Calendar view of a resource's existing bookings (Screen 6).
-
-    Flow: receive request -> validate schema -> call BookingService.get_calendar() -> return standard envelope.
-    """
-    pass
-
-@router.post("")
-async def create_booking():
-    """
-    Create a booking (rejected automatically on overlap).
-
-    Flow: receive request -> validate schema -> call BookingService.create_booking() -> return standard envelope.
-    """
-    pass
-
-@router.patch("/{booking_id}/cancel")
-async def cancel_booking():
-    """
-    Cancel a booking.
-
-    Flow: receive request -> validate schema -> call BookingService.cancel_booking() -> return standard envelope.
-    """
-    pass
-
-@router.patch("/{booking_id}/reschedule")
-async def reschedule_booking():
-    """
-    Reschedule a booking (re-validated for overlap).
-
-    Flow: receive request -> validate schema -> call BookingService.reschedule_booking() -> return standard envelope.
-    """
-    pass
+async def get_calendar(filters: BookingCalendarFilter = Depends(), service: BookingService = Depends(get_booking_service)):
+    bookings = await service.get_calendar(filters.asset_id, filters.range_start, filters.range_end)
+    return success(data=bookings)

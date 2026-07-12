@@ -1,49 +1,52 @@
-"""
-ActivityLogService
+from __future__ import annotations
+from datetime import datetime
+from typing import Optional
 
-Purpose
--------
-Central helper used by EVERY other service to record 'who did what, when'. Every important business action must call this.
-
-Responsibilities
------------------
-- Implements ALL business rules and multi-step orchestration for this module.
-- Calls one or more repositories; repositories never call services.
-- Raises domain exceptions (core/exceptions.py) on rule violations - routers translate these to HTTP responses.
-- Coordinates cross-cutting concerns: ActivityLogService and NotificationService, per the orchestration steps below.
-
-Interacts With
---------------
-- repositories/*.py -> ActivityLogRepository
-- core/exceptions.py -> raises domain-specific exceptions on invalid operations.
-- api/v1/*.py -> the corresponding router calls ActivityLogService exclusively (never repositories directly).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from app.repositories.activity_log_repository import ActivityLogRepository
 
 
 class ActivityLogService:
-    """
-    Business-rule orchestrator for this module. See method docstrings
-    below for the exact step-by-step workflow each action performs,
-    derived from the AssetFlow functional requirements.
-    """
+    def __init__(self, activity_log_repository: ActivityLogRepository):
+        self.activity_logs = activity_log_repository
 
-    def __init__(self, *repositories, **kwargs):
-        """Receive repository/service dependencies via constructor injection (wired in dependencies.py)."""
-        pass
+    async def log(
+        self,
+        user_id: Optional[int],
+        action: str,
+        entity_type: str,
+        entity_id: Optional[int] = None,
+        details: Optional[dict] = None,
+        ip_address: Optional[str] = None,
+    ) -> None:
+        try:
+            await self.activity_logs.create_entry(
+                user_id=user_id,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                details=details,
+                ip_address=ip_address,
+            )
+        except Exception:
+            # Logging must never break the primary business operation.
+            pass
 
-    async def log(self, *args, **kwargs):
-        """
-        Insert an ActivityLog row: user_id, action, entity_type, entity_id, details (JSONB), ip_address. Fire-and-forget from the caller's perspective (should not block/break the primary operation if logging fails).
-        """
-        pass
-
-    async def search(self, *args, **kwargs):
-        """
-        Delegate to ActivityLogRepository.search() with ActivityLogFilter + pagination, for the Activity Logs screen.
-        """
-        pass
+    async def search(
+        self,
+        user_id: Optional[int] = None,
+        entity_type: Optional[str] = None,
+        entity_id: Optional[int] = None,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        skip: int = 0,
+        limit: int = 50,
+    ):
+        return await self.activity_logs.search(
+            user_id=user_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            date_from=date_from,
+            date_to=date_to,
+            skip=skip,
+            limit=limit,
+        )

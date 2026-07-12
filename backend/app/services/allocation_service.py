@@ -1,78 +1,140 @@
-"""
-AllocationService
+from __future__ import annotations
+from datetime import date
+from typing import Optional
 
-Purpose
--------
-Allocate/Return workflow with the core double-allocation conflict rule, per the 'Allocate Asset' orchestration example in the architecture guide.
-
-Responsibilities
------------------
-- Implements ALL business rules and multi-step orchestration for this module.
-- Calls one or more repositories; repositories never call services.
-- Raises domain exceptions (core/exceptions.py) on rule violations - routers translate these to HTTP responses.
-- Coordinates cross-cutting concerns: ActivityLogService and NotificationService, per the orchestration steps below.
-
-Interacts With
---------------
-- repositories/*.py -> AllocationRepository, AssetRepository, AssetService, UserRepository, DepartmentRepository, NotificationService, ActivityLogService
-- core/exceptions.py -> raises domain-specific exceptions on invalid operations.
-- api/v1/*.py -> the corresponding router calls AllocationService exclusively (never repositories directly).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from app.repositories.allocation_repository import AllocationRepository
+from app.repositories.asset_repository import AssetRepository
+from app.services.asset_service import AssetService
+from app.services.notification_service import NotificationService
+from app.services.activity_log_service import ActivityLogService
+from app.core.exceptions import NotFoundException, AssetAlreadyAllocated, ValidationError
 
 
 class AllocationService:
-    """
-    Business-rule orchestrator for this module. See method docstrings
-    below for the exact step-by-step workflow each action performs,
-    derived from the AssetFlow functional requirements.
-    """
+    def __init__(
+        self,
+        allocation_repository: AllocationRepository,
+        asset_repository: AssetRepository,
+        asset_service: AssetService,
+        notification_service: NotificationService,
+        activity_log_service: ActivityLogService,
+    ):
+        self.allocations = allocation_repository
+        self.assets = asset_repository
+        self.asset_service = asset_service
+        self.notifications = notification_service
+        self.activity_log = activity_log_service
 
-    def __init__(self, *repositories, **kwargs):
-        """Receive repository/service dependencies via constructor injection (wired in dependencies.py)."""
-        pass
+    async def allocate_asset(
+        self,
+        asset_id: int,
+        allocated_to_type: str,
+        allocated_by: int,
+        allocated_to_user_id: Optional[int] = None,
+        allocated_to_department_id: Optional[int] = None,
+        expected_return_date: Optional[date] = None,
+    ):
+        asset = await self.assets.find_by_id(asset_id)
+        if asset is None:
+            raise NotFoundException(f"Asset {asset_id} not found")
 
-    async def allocate_asset(self, *args, **kwargs):
-        """
-        1. Check Asset exists.
-        2. Check Asset is Available (if an Active allocation already exists, raise AssetAlreadyAllocated and surface 'currently held by <holder>' so the UI can offer a Transfer Request instead).
-        3. Create Allocation (Employee XOR Department target).
-        4. Update Asset status -> 'Allocated' (via AssetService.transition_status).
-        5. Create ActivityLog ('ALLOCATE_ASSET').
-        6. Create Notification for the recipient ('Asset Assigned').
-        7. Return the created allocation.
-        """
-        pass
+        existing_active = await self.allocations.find_active_by_asset(asset_id)
+        if existing_active is not None:
+            raise AssetAlreadyAllocated(
+                f"Asset {asset_id} is currently held by "
+                f"{'user ' + str(existing_active.allocated_to_user_id) if existing_active.allocated_to_user_id else 'department ' + str(existing_active.allocated_to_department_id)}. "
+                "Consider a Transfer Request instead."
+            )
 
-    async def return_asset(self, *args, **kwargs):
-        """
-        1. Fetch the Active allocation for the asset.
-        2. Capture return_condition_notes and returned_by.
-        3. Mark allocation status='Returned', set actual_return_date.
-        4. Update Asset status -> 'Available' (via AssetService.transition_status).
-        5. Create ActivityLog ('RETURN_ASSET').
-        6. Create Notification (return confirmation).
-        """
-        pass
+        allocation = await self.allocations.create(
+            {
+                "asset_id": asset_id,
+                "allocated_to_type": allocated_to_type,
+                "allocated_to_user_id": allocated_to_user_id,
+                "allocated_to_department_id": allocated_to_department_id,
+                "allocated_by": allocated_by,
+                "expected_return_date": expected_return_date,
+            }
+        )
 
-    async def list_overdue_allocations(self, *args, **kwargs):
-        """
-        Delegate to AllocationRepository.list_overdue() (mirrors v_overdue_allocations); feeds Dashboard + Notifications.
-        """
-        pass
+        await self.asset_service.transition_status(
+            asset_id, "Allocated", allocated_by, reference_type="Allocation", reference_id=allocation.id
+        )
 
-    async def get_allocation_history(self, *args, **kwargs):
-        """
-        List allocation records for an asset, a user, or a department.
-        """
-        pass
+        recipient_id = allocated_to_user_id
+        if recipient_id:
+            await self.notifications.notify(
+                user_id=recipient_id,
+                type="Asset Assigned",
+                title="Asset Assigned",
+                message=f"Asset #{asset_id} has been assigned to you.",
+                reference_type="Allocation",
+                reference_id=allocation.id,
+            )
 
-    async def notify_overdue_returns(self, *args, **kwargs):
-        """
-        Scheduled/triggered job: for each overdue allocation, create an 'Overdue Return Alert' Notification (idempotent - avoid duplicate alerts per day).
-        """
-        pass
+        await self.activity_log.log(
+            user_id=allocated_by,
+            action="ALLOCATE_ASSET",
+            entity_type="Allocation",
+            entity_id=allocation.id,
+            details={"asset_id": asset_id},
+        )
+        return allocation
+
+    async def return_asset(self, asset_id: int, returned_by: int, return_condition_notes: Optional[str] = None):
+        allocation = await self.allocations.find_active_by_asset(asset_id)
+        if allocation is None:
+            raise ValidationError(f"Asset {asset_id} has no active allocation to return")
+
+        updated = await self.allocations.mark_returned(
+            allocation.id, date.today(), return_condition_notes, returned_by
+        )
+
+        await self.asset_service.transition_status(
+            asset_id, "Available", returned_by, reference_type="Allocation", reference_id=allocation.id
+        )
+
+        recipient_id = allocation.allocated_to_user_id
+        if recipient_id:
+            await self.notifications.notify(
+                user_id=recipient_id,
+                type="Asset Returned",
+                title="Asset Return Confirmed",
+                message=f"Return of asset #{asset_id} has been recorded.",
+                reference_type="Allocation",
+                reference_id=allocation.id,
+            )
+
+        await self.activity_log.log(
+            user_id=returned_by,
+            action="RETURN_ASSET",
+            entity_type="Allocation",
+            entity_id=allocation.id,
+            details={"asset_id": asset_id},
+        )
+        return updated
+
+    async def list_overdue_allocations(self):
+        return await self.allocations.list_overdue()
+
+    async def get_allocation_history(
+        self, asset_id: Optional[int] = None, user_id: Optional[int] = None, department_id: Optional[int] = None
+    ):
+        if user_id is not None:
+            return await self.allocations.list_by_user(user_id)
+        if department_id is not None:
+            return await self.allocations.list_by_department(department_id)
+        raise ValidationError("Provide either user_id or department_id (or use AssetService.get_asset_history)")
+
+    async def notify_overdue_returns(self):
+        overdue = await self.allocations.list_overdue()
+        for allocation in overdue:
+            if allocation.allocated_to_user_id:
+                await self.notifications.notify(
+                    user_id=allocation.allocated_to_user_id,
+                    type="Overdue Return Alert",
+                    title="Overdue Asset Return",
+                    message=f"Asset #{allocation.asset_id} was due back on {allocation.expected_return_date}.",
+                    reference_type="Allocation",
+                    reference_id=allocation.id,
+                )

@@ -1,107 +1,78 @@
-"""
-Users Router
-
-Purpose
--------
-HTTP endpoints for the Users module, mounted under prefix "/users".
-
-Responsibilities
------------------
-- Receive the HTTP request and validate it against the Pydantic schema.
-- Delegate ALL business logic to UserService - routers never contain business rules or SQL.
-- Translate domain exceptions (core/exceptions.py) into HTTP error responses.
-- Wrap successful results in the standard {success, message, data} envelope (core/responses.py).
-
-Interacts With
---------------
-- schemas/users.py -> request/response models.
-- services/users_service.py -> UserService, injected via dependencies.py.
-- dependencies.py -> get_current_user() / role-guard dependencies applied per-route as needed.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
-
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_db, get_current_user, get_current_admin
+from app.core.responses import success
+from app.repositories.user_repository import UserRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
+from app.repositories.notification_repository import NotificationRepository
+from app.services.user_service import UserService
+from app.services.activity_log_service import ActivityLogService
+from app.services.notification_service import NotificationService
+from app.schemas.user import UserCreate, UserUpdate, UserRoleUpdate, UserFilter
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
-# Role-guard dependencies (from dependencies.py: get_current_user,
-# get_current_admin, get_current_asset_manager, get_current_department_head)
-# would be added per-route via `Depends(...)` where the requirements
-# specify a role restriction (see docstrings below).
+
+def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
+    return UserService(
+        UserRepository(db),
+        ActivityLogService(ActivityLogRepository(db)),
+        NotificationService(NotificationRepository(db)),
+    )
 
 
 @router.get("")
-async def list_users():
-    """
-    Search/paginate the Employee Directory (Screen 3, Tab C).
+async def list_users(
+    filters: UserFilter = Depends(), skip: int = 0, limit: int = 50, service: UserService = Depends(get_user_service)
+):
+    page = await service.list_users(filters.model_dump(exclude_none=True), skip, limit)
+    return success(data={"items": page.items, "total": page.total, "skip": page.skip, "limit": page.limit})
 
-    Flow: receive request -> validate schema -> call UserService.list_users() -> return standard envelope.
-    """
-    pass
 
 @router.get("/{user_id}")
-async def get_user():
-    """
-    Fetch a single user.
+async def get_user(user_id: int, service: UserService = Depends(get_user_service)):
+    user = await service.get_user(user_id)
+    return success(data=user)
 
-    Flow: receive request -> validate schema -> call UserService.get_user() -> return standard envelope.
-    """
-    pass
 
 @router.post("")
-async def create_user():
-    """
-    Admin-created user.
+async def create_user(payload: UserCreate, service: UserService = Depends(get_user_service), admin=Depends(get_current_admin)):
+    user = await service.create_user(payload.name, payload.email, payload.password, payload.department_id, admin.id)
+    return success(data=user, message="User created")
 
-    Flow: receive request -> validate schema -> call UserService.create_user() -> return standard envelope.
-    """
-    pass
 
 @router.put("/{user_id}")
-async def update_user():
-    """
-    Update profile/department fields.
+async def update_user(
+    user_id: int, payload: UserUpdate, service: UserService = Depends(get_user_service), actor=Depends(get_current_user)
+):
+    user = await service.update_user(user_id, payload.model_dump(exclude_none=True), actor.id)
+    return success(data=user, message="User updated")
 
-    Flow: receive request -> validate schema -> call UserService.update_user() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{user_id}/department")
-async def assign_department():
-    """
-    Assign/reassign department.
+async def assign_department(
+    user_id: int, department_id: int, service: UserService = Depends(get_user_service), actor=Depends(get_current_user)
+):
+    user = await service.set_department(user_id, department_id, actor.id)
+    return success(data=user, message="Department assigned")
 
-    Flow: receive request -> validate schema -> call UserService.assign_department() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{user_id}/role")
-async def promote_role():
-    """
-    Admin-only: promote to Department Head / Asset Manager (only place roles are assigned).
+async def promote_role(
+    user_id: int, payload: UserRoleUpdate, service: UserService = Depends(get_user_service), admin=Depends(get_current_admin)
+):
+    user = await service.promote_role(user_id, payload.role, {"role": admin.role}, admin.id)
+    return success(data=user, message="Role updated")
 
-    Flow: receive request -> validate schema -> call UserService.promote_role() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{user_id}/activate")
-async def activate_user():
-    """
-    Reactivate a user.
+async def activate_user(user_id: int, service: UserService = Depends(get_user_service), admin=Depends(get_current_admin)):
+    user = await service.activate_user(user_id, admin.id)
+    return success(data=user, message="User activated")
 
-    Flow: receive request -> validate schema -> call UserService.activate_user() -> return standard envelope.
-    """
-    pass
 
 @router.patch("/{user_id}/deactivate")
-async def deactivate_user():
-    """
-    Deactivate a user.
-
-    Flow: receive request -> validate schema -> call UserService.deactivate_user() -> return standard envelope.
-    """
-    pass
+async def deactivate_user(user_id: int, service: UserService = Depends(get_user_service), admin=Depends(get_current_admin)):
+    user = await service.deactivate_user(user_id, admin.id)
+    return success(data=user, message="User deactivated")

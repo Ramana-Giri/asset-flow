@@ -1,49 +1,48 @@
-"""
-DashboardService
+from __future__ import annotations
 
-Purpose
--------
-Aggregates KPI cards for the Dashboard screen. Mostly aggregate SQL queries (mirrors v_dashboard_kpis); no complex business logic per the architecture guide.
-
-Responsibilities
------------------
-- Implements ALL business rules and multi-step orchestration for this module.
-- Calls one or more repositories; repositories never call services.
-- Raises domain exceptions (core/exceptions.py) on rule violations - routers translate these to HTTP responses.
-- Coordinates cross-cutting concerns: ActivityLogService and NotificationService, per the orchestration steps below.
-
-Interacts With
---------------
-- repositories/*.py -> AssetRepository, AllocationRepository, MaintenanceRepository, BookingRepository, TransferRepository, ActivityLogRepository
-- core/exceptions.py -> raises domain-specific exceptions on invalid operations.
-- api/v1/*.py -> the corresponding router calls DashboardService exclusively (never repositories directly).
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
-"""
+from app.repositories.asset_repository import AssetRepository
+from app.repositories.allocation_repository import AllocationRepository
+from app.repositories.maintenance_repository import MaintenanceRepository
+from app.repositories.booking_repository import BookingRepository
+from app.repositories.transfer_repository import TransferRepository
+from app.repositories.activity_log_repository import ActivityLogRepository
 
 
 class DashboardService:
-    """
-    Business-rule orchestrator for this module. See method docstrings
-    below for the exact step-by-step workflow each action performs,
-    derived from the AssetFlow functional requirements.
-    """
+    def __init__(
+        self,
+        asset_repository: AssetRepository,
+        allocation_repository: AllocationRepository,
+        maintenance_repository: MaintenanceRepository,
+        booking_repository: BookingRepository,
+        transfer_repository: TransferRepository,
+        activity_log_repository: ActivityLogRepository,
+    ):
+        self.assets = asset_repository
+        self.allocations = allocation_repository
+        self.maintenance = maintenance_repository
+        self.bookings = booking_repository
+        self.transfers = transfer_repository
+        self.activity_logs = activity_log_repository
 
-    def __init__(self, *repositories, **kwargs):
-        """Receive repository/service dependencies via constructor injection (wired in dependencies.py)."""
-        pass
+    async def get_kpis(self):
+        available_page = await self.assets.search({"status": "Available"}, skip=0, limit=1)
+        allocated_page = await self.assets.search({"status": "Allocated"}, skip=0, limit=1)
+        maintenance_today = await self.maintenance.list_due_today()
+        upcoming_bookings = await self.bookings.list_upcoming_for_reminders()
+        pending_transfers = await self.transfers.list_pending()
+        overdue_allocations = await self.allocations.list_overdue()
 
-    async def get_kpis(self, *args, **kwargs):
-        """
-        Assemble: Assets Available, Assets Allocated, Maintenance Today, Active Bookings, Pending Transfers, Upcoming Returns, Overdue Returns.
-        """
-        pass
+        return {
+            "assets_available": available_page.total,
+            "assets_allocated": allocated_page.total,
+            "maintenance_today": len(maintenance_today),
+            "active_bookings": len(upcoming_bookings),
+            "pending_transfers": len(pending_transfers),
+            "upcoming_returns": 0,  # requires a dedicated 7-day-window repository query
+            "overdue_returns": len(overdue_allocations),
+        }
 
-    async def get_recent_activity(self, *args, **kwargs):
-        """
-        Delegate to ActivityLogRepository for the most recent N entries, for the dashboard activity feed.
-        """
-        pass
+    async def get_recent_activity(self, limit: int = 20):
+        page = await self.activity_logs.search(skip=0, limit=limit)
+        return page.items
