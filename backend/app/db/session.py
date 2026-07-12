@@ -21,11 +21,18 @@ for once implemented.
 """
 
 from contextlib import asynccontextmanager
-
-# from app.db.database import SessionLocal
-
+from typing import AsyncIterator
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.database import SessionLocal
 
 @asynccontextmanager
-async def get_session_context():
-    """Yield a database session for use in scripts/scheduled jobs (outside FastAPI's request-scoped DI)."""
-    yield None
+async def get_session_context() -> AsyncIterator[AsyncSession]:
+    session = SessionLocal()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()

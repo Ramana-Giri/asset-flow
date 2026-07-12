@@ -22,32 +22,29 @@ intentionally left as `pass` (no business logic / SQL / validation code),
 per generation scope. Docstrings describe what each piece IS responsible
 for once implemented.
 """
+"""AssetCategory Model (table: "asset_categories")"""
+
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+if TYPE_CHECKING:
+    from app.db.models.asset import Asset
 
 
 class AssetCategory(Base):
-    """
-    ORM model for the "asset_categories" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - name: VARCHAR(100) UNIQUE NOT NULL
-    # - description: TEXT
-    # - custom_field_schema: JSONB (list of {field, type, unit} definitions)
-    # - created_at / updated_at: TIMESTAMPTZ
-
-    Relationships:
-    # - assets: list[Asset] (assets registered under this category)
-    """
-
     __tablename__ = "asset_categories"
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    custom_field_schema: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    assets: Mapped[List["Asset"]] = relationship("Asset", back_populates="category")

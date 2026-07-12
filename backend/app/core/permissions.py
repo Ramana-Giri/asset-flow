@@ -23,22 +23,18 @@ intentionally left as `pass` (no business logic / SQL / validation code),
 per generation scope. Docstrings describe what each piece IS responsible
 for once implemented.
 """
+def require_admin(user: "User") -> None:
+    if user.role != UserRole.ADMIN:
+        raise PermissionDenied("This action requires Admin privileges.")
 
-def require_admin(user) -> None:
-    """Raise PermissionDenied unless the user's role is 'Admin'."""
-    pass
+def require_asset_manager(user: "User") -> None:
+    if user.role not in (UserRole.ASSET_MANAGER, UserRole.ADMIN):
+        raise PermissionDenied("This action requires Asset Manager (or Admin) privileges.")
 
+def require_department_head(user: "User") -> None:
+    if user.role not in (UserRole.DEPARTMENT_HEAD, UserRole.ADMIN):
+        raise PermissionDenied("This action requires Department Head (or Admin) privileges.")
 
-def require_asset_manager(user) -> None:
-    """Raise PermissionDenied unless the user's role is 'Asset Manager' or 'Admin'."""
-    pass
-
-
-def require_department_head(user) -> None:
-    """Raise PermissionDenied unless the user's role is 'Department Head' or 'Admin'."""
-    pass
-
-
-def require_self_or_admin(user, target_user_id: int) -> None:
-    """Raise PermissionDenied unless the user is acting on their own record or is Admin."""
-    pass
+def require_self_or_admin(user: "User", target_user_id: int) -> None:
+    if user.role != UserRole.ADMIN and user.id != target_user_id:
+        raise PermissionDenied("You may only perform this action on your own account.")

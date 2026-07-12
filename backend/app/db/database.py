@@ -21,10 +21,13 @@ intentionally left as `pass` (no business logic / SQL / validation code),
 per generation scope. Docstrings describe what each piece IS responsible
 for once implemented.
 """
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from app.config import settings
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+engine: AsyncEngine = create_async_engine(
+    settings.DATABASE_URL, echo=settings.DEBUG, pool_pre_ping=True, future=True,
+)
 
-# from app.config import settings
-
-# engine = create_async_engine(settings.DATABASE_URL, echo=False)
-# SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
+    bind=engine, class_=AsyncSession, expire_on_commit=False, autoflush=False,
+)

@@ -16,24 +16,23 @@ Interacts With
 - services/allocation_service.py -> overdue detection.
 - services/booking_service.py -> overlap pre-check.
 - services/dashboard_service.py -> KPI windows.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import Optional
 
 
-def is_overdue(expected_return_date: date | None) -> bool:
+def is_overdue(expected_return_date: Optional[date]) -> bool:
     """Return True if expected_return_date is in the past relative to today."""
-    pass
+    if expected_return_date is None:
+        return False
+    return expected_return_date < date.today()
 
 
 def is_within_next_days(target_date: date, days: int) -> bool:
     """Return True if target_date falls within [today, today + days]."""
-    pass
+    today = date.today()
+    return today <= target_date <= today + timedelta(days=days)
 
 
 def ranges_overlap(start1: datetime, end1: datetime, start2: datetime, end2: datetime) -> bool:
@@ -42,4 +41,4 @@ def ranges_overlap(start1: datetime, end1: datetime, start2: datetime, end2: dat
     Mirrors the Postgres EXCLUDE constraint semantics (excl_no_overlapping_bookings)
     so a 10:00-11:00 booking does NOT conflict with an existing 9:00-10:00 booking.
     """
-    pass
+    return start1 < end2 and start2 < end1

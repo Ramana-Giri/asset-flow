@@ -22,46 +22,80 @@ intentionally left as `pass` (no business logic / SQL / validation code),
 per generation scope. Docstrings describe what each piece IS responsible
 for once implemented.
 """
+"""User Model (table: "users")"""
 
+from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.enums import AccountStatus, UserRole
 from app.db.base import Base
 
-# Column and relationship declarations are intentionally omitted from this
-# skeleton (SQLAlchemy 2.0 `Mapped` / `mapped_column` / `relationship`
-# constructs would go here). The authoritative column list, types,
-# constraints and indexes for this table live in assetflow_schema.sql.
+if TYPE_CHECKING:
+    from app.db.models.activity_log import ActivityLog
+    from app.db.models.allocation import Allocation
+    from app.db.models.booking import ResourceBooking
+    from app.db.models.department import Department
+    from app.db.models.maintenance import MaintenanceRequest
+    from app.db.models.notification import Notification
+    from app.db.models.password_reset import PasswordResetToken
+    from app.db.models.session import UserSession
+
+_user_role_enum = PGEnum(
+    UserRole, name="user_role", create_type=False, values_callable=lambda obj: [e.value for e in obj]
+)
+_account_status_enum = PGEnum(
+    AccountStatus, name="account_status", create_type=False, values_callable=lambda obj: [e.value for e in obj]
+)
 
 
 class User(Base):
-    """
-    ORM model for the "users" table.
-
-    Columns (see assetflow_schema.sql for authoritative types/constraints):
-    # - id: SERIAL PK
-    # - name: VARCHAR(150) NOT NULL
-    # - email: VARCHAR(150) UNIQUE NOT NULL
-    # - password_hash: VARCHAR(255) NOT NULL (bcrypt)
-    # - role: user_role ENUM ('Admin','Asset Manager','Department Head','Employee')
-    # - department_id: FK -> departments.id (nullable)
-    # - status: account_status ENUM ('Active','Inactive')
-    # - promoted_by: FK -> users.id (nullable, Admin who promoted this user)
-    # - promoted_at: TIMESTAMPTZ (nullable)
-    # - created_at / updated_at: TIMESTAMPTZ
-
-    Relationships:
-    # - department: Department (many-to-one)
-    # - promoted_by_user: User (self-referential)
-    # - sessions: list[UserSession]
-    # - password_reset_tokens: list[PasswordResetToken]
-    # - allocations_received: list[Allocation] (as allocated_to_user)
-    # - allocations_made: list[Allocation] (as allocated_by, Asset Manager)
-    # - maintenance_requests_raised: list[MaintenanceRequest]
-    # - bookings: list[ResourceBooking]
-    # - notifications: list[Notification]
-    # - activity_logs: list[ActivityLog]
-    """
-
     __tablename__ = "users"
 
-    # TODO (structure only, not implemented here): declare mapped_column()
-    # attributes and relationship() attributes matching the lists above.
-    pass
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    email: Mapped[str] = mapped_column(String(150), nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[UserRole] = mapped_column(_user_role_enum, nullable=False, default=UserRole.EMPLOYEE)
+    department_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[AccountStatus] = mapped_column(_account_status_enum, nullable=False, default=AccountStatus.ACTIVE)
+    promoted_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    promoted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    department: Mapped[Optional["Department"]] = relationship(
+        "Department", foreign_keys=[department_id], back_populates="users"
+    )
+    headed_department: Mapped[Optional["Department"]] = relationship(
+        "Department", foreign_keys="Department.head_user_id", back_populates="head", uselist=False
+    )
+    promoted_by_user: Mapped[Optional["User"]] = relationship(
+        "User", remote_side=[id], foreign_keys=[promoted_by]
+    )
+
+    sessions: Mapped[List["UserSession"]] = relationship("UserSession", back_populates="user")
+    password_reset_tokens: Mapped[List["PasswordResetToken"]] = relationship(
+        "PasswordResetToken", back_populates="user"
+    )
+    allocations_received: Mapped[List["Allocation"]] = relationship(
+        "Allocation", foreign_keys="Allocation.allocated_to_user_id", back_populates="allocated_to_user"
+    )
+    allocations_made: Mapped[List["Allocation"]] = relationship(
+        "Allocation", foreign_keys="Allocation.allocated_by", back_populates="allocated_by_user"
+    )
+    maintenance_requests_raised: Mapped[List["MaintenanceRequest"]] = relationship(
+        "MaintenanceRequest", foreign_keys="MaintenanceRequest.raised_by", back_populates="raised_by_user"
+    )
+    bookings: Mapped[List["ResourceBooking"]] = relationship(
+        "ResourceBooking", foreign_keys="ResourceBooking.booked_by", back_populates="booked_by_user"
+    )
+    notifications: Mapped[List["Notification"]] = relationship("Notification", back_populates="user")
+    activity_logs: Mapped[List["ActivityLog"]] = relationship("ActivityLog", back_populates="user")

@@ -13,13 +13,32 @@ Interacts With
 --------------
 - services/asset_service.py -> called during register_asset().
 - utils/file_upload.py -> may be used to persist the generated QR image.
-
-NOTE: This file is a structural skeleton only. Method/function bodies are
-intentionally left as `pass` (no business logic / SQL / validation code),
-per generation scope. Docstrings describe what each piece IS responsible
-for once implemented.
 """
 
+from pathlib import Path
+
+import qrcode
+
+from app.config import settings
+
+_QR_SUBFOLDER = "qr"
+
+
 def generate_qr_code(asset_tag: str) -> str:
-    """Generate a QR code for the given asset_tag and return a reference string (e.g. file path or encoded payload)."""
-    pass
+    """Generate a QR code for the given asset_tag and return a reference string (a relative file path).
+
+    The QR payload is the bare asset_tag (e.g. "AF-0001"), which scanners
+    can resolve via the asset lookup screen/API. The image is written to
+    <UPLOAD_PATH>/qr/<asset_tag>.png and the relative path is returned for
+    storage in assets.qr_code.
+    """
+    qr_dir = Path(settings.UPLOAD_PATH) / _QR_SUBFOLDER
+    qr_dir.mkdir(parents=True, exist_ok=True)
+
+    image = qrcode.make(asset_tag)
+
+    safe_name = asset_tag.replace("/", "_").replace("\\", "_")
+    file_path = qr_dir / f"{safe_name}.png"
+    image.save(file_path)
+
+    return f"{_QR_SUBFOLDER}/{safe_name}.png"

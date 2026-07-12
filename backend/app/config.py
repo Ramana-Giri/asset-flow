@@ -23,27 +23,41 @@ intentionally left as `pass` (no business logic / SQL / validation code),
 per generation scope. Docstrings describe what each piece IS responsible
 for once implemented.
 """
+from functools import lru_cache
+from typing import List
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Environment-driven application settings.
-
-    Expected variables (NO JWT - auth is opaque session-token based,
-    backed by the `user_sessions` table):
-      - DATABASE_URL
-      - SESSION_TOKEN_EXPIRE_MINUTES
-      - SESSION_COOKIE_NAME
-      - UPLOAD_PATH
-      - CORS_ORIGINS
-      - BCRYPT_ROUNDS
-    """
-
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Fields intentionally omitted from this skeleton.
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/assetflow"
+
+    SESSION_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    SESSION_COOKIE_NAME: str = "assetflow_session"
+    BCRYPT_ROUNDS: int = 12
+
+    UPLOAD_PATH: str = "app/uploads"
+
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+
+    APP_NAME: str = "AssetFlow"
+    ENVIRONMENT: str = "development"
+    DEBUG: bool = True
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value):
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
