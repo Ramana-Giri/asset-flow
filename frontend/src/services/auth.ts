@@ -35,3 +35,18 @@ export function logout() {
 export function getToken() {
   return localStorage.getItem("access_token");
 }
+
+export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getToken();
+  const headers = {
+    "Content-Type": "application/json",
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...(options.headers as Record<string, string>),
+  };
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  if (res.status === 401) {
+    logout();
+    throw new Error("Session expired");
+  }
+  return res;
+}
