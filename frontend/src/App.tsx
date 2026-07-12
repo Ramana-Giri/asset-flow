@@ -3,9 +3,10 @@ import { AuthProvider } from "./context/AuthContext";
 import Login from "./pages/login";
 import Signup from "./pages/signup";
 import Dashboard from "./pages/dashboard";
+import BookingsPage from "./pages/bookingpage";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-const App: React.FC = () => {
+function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
@@ -20,11 +21,19 @@ const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/bookings"
+            element={
+              <ProtectedRoute>
+                <BookingsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
   );
-};
+}
 
 export default App;
