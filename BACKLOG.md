@@ -6,3 +6,6 @@
 ## Asset Directory (post-MVP)
 - [ ] Modify asset (edit details)
 - [ ] Delete asset
+
+## Backend Architecture (post-MVP)
+- [ ] Migrate schema management from hand-written SQL to SQLAlchemy models + Alembic migrations
