@@ -22,7 +22,6 @@ backend/.ruff_cache/
 
 # Environment variables
 .env
-.env.*
 
 # Logs
 *.log
