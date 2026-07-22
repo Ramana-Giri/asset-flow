@@ -1,7 +1,8 @@
 from sqlalchemy import Integer, String, Column, ForeignKey, CheckConstraint
-from sqlalchemy.orm import declarative_base 
+from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
+
 
 class Employee(Base):
     __tablename__ = "employees"
@@ -23,7 +24,6 @@ class Asset(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('assigned', 'not assigned')",
-            name="check_status_valid_values"
+            "status IN ('assigned', 'not assigned')", name="check_status_valid_values"
         ),
     )

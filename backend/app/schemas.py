@@ -1,9 +1,11 @@
-from pydantic import BaseModel, EmailStr 
+from pydantic import BaseModel, EmailStr
+
 
 class EmployeeCreate(BaseModel):
     name: str
     email_address: EmailStr
     password: str
+
 
 class EmployeeResponse(BaseModel):
     employee_id: int
@@ -12,3 +14,8 @@ class EmployeeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EmployeeLogin(BaseModel):
+    email_address: EmailStr
+    password: str
